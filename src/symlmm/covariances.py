@@ -8,6 +8,7 @@ from collections.abc import Sequence
 import sympy as sp  # type: ignore[import-untyped]
 
 from .constraints import Constraint, Relation, is_positive_definite
+from .errors import CovarianceConstructionError
 
 
 class CovarianceSpec(ABC):
@@ -120,7 +121,7 @@ class Unstructured(CovarianceSpec):
     def from_sd_corr(cls, sd: Sequence[sp.Expr], corr: sp.Expr) -> Unstructured:
         """Build a 2x2 covariance from two standard deviations and a correlation."""
         if len(sd) != 2:
-            raise ValueError("v0.1 supports 2x2 SD+corr construction")
+            raise CovarianceConstructionError("v0.1 supports 2x2 SD+corr construction")
         s0, s1 = sd
         matrix = sp.Matrix([[s0**2, s0 * s1 * corr], [s0 * s1 * corr, s1**2]])
         instance = cls(matrix)

@@ -50,6 +50,10 @@ class UnresolvedSymbols(ModelError):
     """Raised when numeric evaluation still has free symbols."""
 
 
+class CovarianceConstructionError(SymlmmError, ValueError):
+    """Raised for invalid covariance-construction arguments."""
+
+
 class ParameterConstraintError(ModelError):
     """Raised when covariance parameter constraints are violated."""
 

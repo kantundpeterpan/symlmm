@@ -18,6 +18,7 @@ from .covariances import (
     Unstructured,
 )
 from .errors import (
+    CovarianceConstructionError,
     FormArityError,
     FormError,
     InvalidFormError,
@@ -41,6 +42,7 @@ __version__ = version("symlmm")
 __all__ = [
     "IID",
     "Constraint",
+    "CovarianceConstructionError",
     "CovarianceSpec",
     "Crossed",
     "Diagonal",

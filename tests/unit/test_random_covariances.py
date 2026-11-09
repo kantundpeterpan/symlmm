@@ -10,6 +10,7 @@ from symlmm.covariances import (
     Scalar,
     Unstructured,
 )
+from symlmm.errors import CovarianceConstructionError, SymlmmError
 
 
 def test_scalar_entry():
@@ -88,8 +89,19 @@ def test_unstructured_from_sd_corr_rejects_non_2x2():
     s0 = sp.Symbol("s0", positive=True)
     rho = sp.Symbol("rho", real=True)
 
-    with pytest.raises(ValueError, match="2x2"):
+    with pytest.raises(CovarianceConstructionError, match="2x2"):
         Unstructured.from_sd_corr([s0], rho)
+
+
+def test_covariance_construction_error_is_value_and_symlmm_error():
+    s0 = sp.Symbol("s0", positive=True)
+    rho = sp.Symbol("rho", real=True)
+
+    with pytest.raises(CovarianceConstructionError) as excinfo:
+        Unstructured.from_sd_corr([s0], rho)
+
+    assert isinstance(excinfo.value, ValueError)
+    assert isinstance(excinfo.value, SymlmmError)
 
 
 def test_unstructured_from_cholesky():
