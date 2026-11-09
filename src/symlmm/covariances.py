@@ -187,3 +187,70 @@ class Unstructured(CovarianceSpec):
             Constraint(self._corr + 1, Relation.GT, "-1 < rho"),
             Constraint(1 - self._corr, Relation.GT, "rho < 1"),
         )
+
+
+def _euclidean_distance(i: int, j: int, model: Any) -> sp.Expr:
+    """Return the Euclidean distance between observations `i` and `j`."""
+    dx = model.covariate(i, "x") - model.covariate(j, "x")
+    dy = model.covariate(i, "y") - model.covariate(j, "y")
+    return sp.sqrt(dx**2 + dy**2)
+
+
+class Exponential(ResidualCovariance):
+    """Exponential spatial covariance."""
+
+    def __init__(self, *, var: sp.Expr, range: sp.Expr) -> None:
+        self.var = var
+        self.range = range
+
+    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
+        """Return the (i, j) observation entry."""
+        return self.entry_from_distance(_euclidean_distance(i, j, model))
+
+    def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
+        """Return the covariance entry for a distance."""
+        return self.var * sp.exp(-distance / self.range)
+
+
+class Gaussian(ResidualCovariance):
+    """Gaussian spatial covariance."""
+
+    def __init__(self, *, var: sp.Expr, range: sp.Expr) -> None:
+        self.var = var
+        self.range = range
+
+    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
+        """Return the (i, j) observation entry."""
+        return self.entry_from_distance(_euclidean_distance(i, j, model))
+
+    def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
+        """Return the covariance entry for a distance."""
+        return self.var * sp.exp(-(distance**2) / (2 * self.range**2))
+
+
+class Matern(ResidualCovariance):
+    """Matern spatial covariance for nu in {1/2, 3/2, 5/2}."""
+
+    def __init__(self, *, var: sp.Expr, range: sp.Expr, nu: sp.Expr) -> None:
+        self.var = var
+        self.range = range
+        self.nu = nu
+
+    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
+        """Return the (i, j) observation entry."""
+        return self.entry_from_distance(_euclidean_distance(i, j, model))
+
+    def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
+        """Return the covariance entry for a distance."""
+        scaled = distance / self.range
+        if self.nu == sp.Rational(1, 2):
+            return self.var * sp.exp(-scaled)
+        if self.nu == sp.Rational(3, 2):
+            return self.var * (1 + sp.sqrt(3) * scaled) * sp.exp(-sp.sqrt(3) * scaled)
+        if self.nu == sp.Rational(5, 2):
+            return (
+                self.var
+                * (1 + sp.sqrt(5) * scaled + 5 * scaled**2 / 3)
+                * sp.exp(-sp.sqrt(5) * scaled)
+            )
+        raise CovarianceConstructionError(f"unsupported Matern nu: {self.nu}")
