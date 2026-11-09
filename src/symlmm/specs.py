@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
+from .errors import CovarianceConstructionError
+
 if TYPE_CHECKING:
     from .covariances import CovarianceSpec
     from .model import IndexedModel
@@ -106,13 +108,10 @@ class RandomSlope:
     time: str
     cov: CovarianceSpec
 
+    def __post_init__(self) -> None:
+        if self.cov.dim != 2:
+            raise CovarianceConstructionError("RandomSlope covariance must be 2x2")
+
     def z(self, model: IndexedModel, i: Any) -> sp.Matrix:
         """Return the random-effect design row for observation `i`."""
         return sp.Matrix([1, model.time(i, self.time)])
-
-    def entry(self, model: IndexedModel, i: Any, j: Any) -> sp.Expr:
-        """Return this term's contribution to the (i, j) covariance entry."""
-        zi = self.z(model, i)
-        zj = self.z(model, j)
-        value = (zi.T * self.cov.dense() * zj)[0, 0]
-        return value * sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))

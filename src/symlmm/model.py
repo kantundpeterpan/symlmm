@@ -144,11 +144,7 @@ class LMM(IndexedModel):
         """Return the structured sum-form covariance entry."""
         total = self.residual.entry(i, j, self)
         for term in self.random:
-            entry = getattr(term, "entry", None)
-            if entry is not None:
-                total += entry(self, i, j)
-            else:
-                total += self._random_term_entry(term, i, j)
+            total += self._random_term_entry(term, i, j)
         return total
 
     def mean(

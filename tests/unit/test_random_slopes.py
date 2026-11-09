@@ -88,6 +88,13 @@ def test_block_diag_rejects_empty_blocks():
         BlockDiag([])
 
 
+def test_random_slope_rejects_non_2x2_covariance():
+    tau2 = sp.Symbol("tau2", positive=True)
+
+    with pytest.raises(CovarianceConstructionError, match="2x2"):
+        RandomSlope(group="subject", time="time", cov=Scalar(tau2))
+
+
 def _sd_corr(s0, s1, rho):
     from symlmm.covariances import Unstructured
 
