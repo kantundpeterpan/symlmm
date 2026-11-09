@@ -13,7 +13,7 @@ version: 0.1.0
 date-released: 2026-11-09
 license: BSD-3-Clause
 
-repository-code: "https://github.com/symlmm/symlmm"
+repository-code: "https://github.com/kantundpeterpan/symlmm"
 
 keywords:
   - linear mixed models
