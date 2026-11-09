@@ -19,11 +19,8 @@ def blup_mean(model: Any, form: str | Form | None = None) -> Any:
     G = sp.MatrixSymbol("G", q, q)
     Z = sp.MatrixSymbol("Z", n, q)
     V = model.matrix_covariance()
-    p = len(model.fixed.coefficients())
-    X = sp.MatrixSymbol("X", n, p)
-    beta = sp.MatrixSymbol("beta", p, 1)
     y = sp.MatrixSymbol("y", n, 1)
-    expression = G * Z.T * V.inverse() * (y - X * beta)
+    expression = G * Z.T * V.inverse() * (y - model.matrix_mean())
     if form is Form.MATRIX:
         return expression
     return DualForm(sum=None, matrix=expression)

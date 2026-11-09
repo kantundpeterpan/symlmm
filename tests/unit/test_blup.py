@@ -30,14 +30,14 @@ def test_blup_matrix_form():
 def test_blup_mean_expression():
     model = _model()
     n, q = model.dimensions()
-    p = len(model.fixed.coefficients())
     G = sp.MatrixSymbol("G", q, q)
     Z = sp.MatrixSymbol("Z", n, q)
-    X = sp.MatrixSymbol("X", n, p)
-    beta = sp.MatrixSymbol("beta", p, 1)
     y = sp.MatrixSymbol("y", n, 1)
-    expected = G * Z.T * model.matrix_covariance().inverse() * (y - X * beta)
-    assert model.blup_mean(form="matrix") == expected
+    expected = G * Z.T * model.matrix_covariance().inverse() * (y - model.matrix_mean())
+    result = model.blup_mean(form="matrix")
+    assert result == expected
+    assert result.shape == (q, 1)
+    assert result.has(model.matrix_mean())
 
 
 def test_blup_both_form_returns_dual_form():
