@@ -121,10 +121,8 @@ class MarginalLMM(IndexedModel):
     def correlation(self, i=None, j=None, *, form=None):
         """Return Corr(y_i, y_j); entry and whole-matrix forms."""
         form = require_form(form)
+        corr = sp.MatrixSymbol("Corr", self.n, self.n)
         if i is None and j is None:
-            V = self.matrix_covariance()
-            D = sp.matrices.expressions.diagonal.DiagonalOf(V)
-            corr = V * D**sp.Rational(-1, 2)
             if form is Form.MATRIX:
                 return corr
             return DualForm(sum=EntryMap(lambda a, b: self._corr_entry(a, b)), matrix=corr)
@@ -133,10 +131,9 @@ class MarginalLMM(IndexedModel):
         entry = self._corr_entry(i, j)
         if form is Form.SUM:
             return entry
-        matrix = self.matrix_covariance()[i, j]
         if form is Form.MATRIX:
-            return matrix
-        return DualForm(sum=entry, matrix=matrix)
+            return corr[i, j]
+        return DualForm(sum=entry, matrix=corr[i, j])
 
     def _corr_entry(self, i, j):
         vi = self.covariance_spec.entry(i, i, self)

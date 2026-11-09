@@ -682,6 +682,10 @@ git commit -m "feat: add constraint objects and PD tri-state checks"
 # tests/unit/test_sympy_capabilities.py
 import pytest
 import sympy as sp
+from sympy.core.sympify import SympifyError
+from sympy.matrices.expressions.applyfunc import ElementwiseApplyFunction
+from sympy.matrices.expressions.blockmatrix import BlockDiagMatrix
+from sympy.matrices.expressions.diagonal import DiagonalOf
 
 
 def test_matmul_entry_expands_to_sum():
@@ -692,28 +696,32 @@ def test_matmul_entry_expands_to_sum():
     assert V[0, 1].has(sp.Sum)
 
 
-def test_blockdiag_requires_explicit_blocks():
+def test_blockdiag_accepts_varargs_but_not_lists():
     A = sp.MatrixSymbol("A", 2, 2)
     B = sp.MatrixSymbol("B", 3, 3)
-    block = sp.BlockDiagMatrix([A, B])
+    block = BlockDiagMatrix(A, B)
     assert block.shape == (5, 5)
+    with pytest.raises(SympifyError):
+        BlockDiagMatrix([A, B])
 
 
 def test_elementwise_apply_function():
     n = sp.Symbol("n", positive=True, integer=True)
     x = sp.MatrixSymbol("x", n, 1)
-    f = sp.matrices.expressions.applyfunc.ElementwiseApplyFunction(sp.exp, x)
+    f = ElementwiseApplyFunction(sp.exp, x)
     assert f.shape == (n, 1)
+    assert f[0, 0] == sp.exp(x[0, 0])
 
 
-def test_diagonal_of_shape():
+def test_diagonal_of_is_a_column_vector():
     n = sp.Symbol("n", positive=True, integer=True)
     V = sp.MatrixSymbol("V", n, n)
-    d = sp.matrices.expressions.diagonal.DiagonalOf(V)
+    d = DiagonalOf(V)
     assert d.shape == (n, 1)
+    assert d[0, 0] == V[0, 0]
 
 
-def test_kronecker_delta_sum_collapses():
+def test_kronecker_delta_sum_collapses_after_index_substitution():
     i, j = sp.symbols("i j", integer=True)
     tau2 = sp.Symbol("tau2", positive=True)
     expr = sp.Sum(tau2 * sp.KroneckerDelta(i, j), (i, 0, 3)).doit()
@@ -738,6 +746,9 @@ Expected: all pass, or failures documented in Step 4.
 """Manual exploration of the SymPy capabilities required by symlmm."""
 
 import sympy as sp
+from sympy.matrices.expressions.applyfunc import ElementwiseApplyFunction
+from sympy.matrices.expressions.blockmatrix import BlockDiagMatrix
+from sympy.matrices.expressions.diagonal import DiagonalOf
 
 
 def main() -> None:
@@ -747,13 +758,13 @@ def main() -> None:
     print("MatMul entry:", (Z * G * Z.T)[0, 1])
 
     A = sp.MatrixSymbol("A", 2, 2)
-    print("BlockDiag:", sp.BlockDiagMatrix([A, A]).shape)
+    print("BlockDiag:", BlockDiagMatrix(A, A).shape)
 
     x = sp.MatrixSymbol("x", n, 1)
-    print("Elementwise:", sp.matrices.expressions.applyfunc.ElementwiseApplyFunction(sp.exp, x))
+    print("Elementwise:", ElementwiseApplyFunction(sp.exp, x))
 
     V = sp.MatrixSymbol("V", n, n)
-    print("DiagonalOf:", sp.matrices.expressions.diagonal.DiagonalOf(V).shape)
+    print("DiagonalOf:", DiagonalOf(V).shape)
 
 
 if __name__ == "__main__":
@@ -764,12 +775,15 @@ if __name__ == "__main__":
 
 Create `docs/design/2026-11-09-sympy-capabilities.md` with a table:
 
-| Capability | Result | Fallback |
+| Capability | Result | Consequence |
 |---|---|---|
-| `MatMul` entry expands to `Sum` | pass/fail | manual `Sum` construction in `model.py` |
-| `BlockDiagMatrix` with symbolic block count | fail expected | abstract `G` symbol in matrix form |
-| `ElementwiseApplyFunction` | pass/fail | custom `MatrixExpr` subclass in `forms.py` |
-| `DiagonalOf` shape | pass/fail | `EntryMap` diagonal helper |
+| `MatMul` entry expands to `Sum` | supported | use `MatMul` entry extraction; dummy bounds are 0-based |
+| `BlockDiagMatrix` with symbolic block count | unsupported | keep `G` abstract in matrix form; dense uses varargs |
+| `BlockDiagMatrix` with explicit blocks | supported (`BlockDiagMatrix(A, B)`) | never pass a list; it raises `SympifyError` |
+| `ElementwiseApplyFunction` | supported | use for `g^-1(X beta)` and variance functions |
+| `DiagonalOf` | column vector `(n, 1)` | `variance(form="matrix")` is a variance vector |
+| `DiagonalMatrix` | not a square matrix in SymPy 1.14 | use an abstract `MatrixSymbol("Corr", n, n)` for matrix correlation |
+| `KroneckerDelta` sums | not auto-collapsed | implement rewrite rules; substitute concrete indices in closed-form tests |
 | `KroneckerDelta` sum collapse | pass/fail | explicit rewrite rule in `simplify.py` |
 | symbolic `MatrixSymbol` dimensions | pass/fail | integer-only dense fallback |
 
@@ -1442,15 +1456,16 @@ def covariance(model, i=None, j=None, form=None):
 
 
 def variance(model, i=None, form=None):
-    """Return the marginal variance."""
+    """Return the marginal variance vector or entry."""
     form = require_form(form)
     if i is None:
         if form is Form.SUM:
             raise FormArityError("variance requires an index for form='sum'")
-        matrix = sp.matrices.expressions.diagonal.DiagonalOf(model.matrix_covariance())
+        # DiagonalOf is a column vector of variances, not a diagonal matrix.
+        vector = sp.matrices.expressions.diagonal.DiagonalOf(model.matrix_covariance())
         if form is Form.MATRIX:
-            return matrix
-        return DualForm(sum=EntryMap(lambda k: model.covariance_entry(k, k)), matrix=matrix)
+            return vector
+        return DualForm(sum=EntryMap(lambda k: model.covariance_entry(k, k)), matrix=vector)
     if form is Form.SUM:
         return model.covariance_entry(i, i)
     if form is Form.MATRIX:
@@ -1466,10 +1481,8 @@ def correlation(model, i=None, j=None, form=None):
     form = require_form(form)
     if (i is None) != (j is None):
         raise FormArityError("correlation requires both indices or neither")
+    corr = sp.MatrixSymbol("Corr", model.n, model.n)
     if i is None:
-        V = model.matrix_covariance()
-        D = sp.matrices.expressions.diagonal.DiagonalOf(V)
-        corr = V * D**sp.Rational(-1, 2)
         if form is Form.MATRIX:
             return corr
         return DualForm(
@@ -1479,10 +1492,9 @@ def correlation(model, i=None, j=None, form=None):
     entry = _correlation_entry(model, i, j)
     if form is Form.SUM:
         return entry
-    matrix = model.matrix_covariance()[i, j]
     if form is Form.MATRIX:
-        return matrix
-    return DualForm(sum=entry, matrix=matrix)
+        return corr[i, j]
+    return DualForm(sum=entry, matrix=corr[i, j])
 
 
 def _correlation_entry(model, i, j):
@@ -2326,11 +2338,13 @@ Expected: FAIL with `AttributeError`.
         if not getattr(self, "_dense", False):
             _, q = self.dimensions()
             return sp.MatrixSymbol("G", q, q)
+        from sympy.matrices.expressions.blockmatrix import BlockDiagMatrix
+
         blocks = []
         for term in self.random:
             labels = sorted(set(self._observations[term.group]))
             blocks.extend([term.cov.dense()] * len(labels))
-        return sp.BlockDiagMatrix(blocks).as_explicit()
+        return BlockDiagMatrix(*blocks).as_explicit()
 
     def matrix_r(self):
         if not getattr(self, "_dense", False):
