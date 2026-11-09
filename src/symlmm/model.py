@@ -116,3 +116,18 @@ class LMM(IndexedModel):
         G = sp.MatrixSymbol("G", q, q)
         R = sp.MatrixSymbol("R", n, n)
         return Z * G * Z.T + R
+
+    def _random_term_entry(self, term: RandomIntercept, i: Any, j: Any) -> Any:
+        """Return the structured contribution of one random term."""
+        z_accessor = getattr(term, "z", None)
+        zi = z_accessor(self, i) if z_accessor is not None else sp.Matrix([1])
+        zj = z_accessor(self, j) if z_accessor is not None else sp.Matrix([1])
+        value = (zi.T * term.cov.dense() * zj)[0, 0]
+        return value * sp.KroneckerDelta(self.group(i, term.group), self.group(j, term.group))
+
+    def covariance_entry(self, i: Any, j: Any) -> Any:
+        """Return the structured sum-form covariance entry."""
+        total = self.residual.entry(i, j, self)
+        for term in self.random:
+            total += self._random_term_entry(term, i, j)
+        return total
