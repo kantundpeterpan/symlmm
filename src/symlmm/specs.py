@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import sympy as sp  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
+    from .covariances import CovarianceSpec
     from .model import IndexedModel
 
 
@@ -83,3 +84,11 @@ class Fixed:
         for name, coefficient in self.slopes.items():
             value = value + coefficient * model.covariate(i, name)
         return value
+
+
+@dataclass(frozen=True)
+class RandomIntercept:
+    """Random-intercept term."""
+
+    group: str
+    cov: CovarianceSpec

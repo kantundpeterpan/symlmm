@@ -33,14 +33,15 @@ from .errors import (
     UnsupportedForm,
 )
 from .forms import DualForm, EntryMap, Form, require_form
-from .model import IndexedModel
-from .specs import Crossed, Fixed, Group, Nested
+from .model import LMM, IndexedModel
+from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
 from .symbols import observation_index, parameter
 
 __version__ = version("symlmm")
 
 __all__ = [
     "IID",
+    "LMM",
     "Constraint",
     "CovarianceConstructionError",
     "CovarianceSpec",
@@ -63,6 +64,7 @@ __all__ = [
     "NotDefined",
     "ParameterConstraintError",
     "RandomCovariance",
+    "RandomIntercept",
     "Relation",
     "ResidualCovariance",
     "Scalar",
