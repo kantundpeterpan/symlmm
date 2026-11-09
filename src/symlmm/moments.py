@@ -1,0 +1,152 @@
+"""Moment queries for symbolic models."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import sympy as sp  # type: ignore[import-untyped]
+
+from .errors import FormArityError
+from .forms import DualForm, EntryMap, Form, require_form
+
+
+def mean(model: Any, i: Any | None = None, form: str | Form | None = None) -> Any:
+    """Return the marginal mean."""
+    form = require_form(form)
+    if i is not None:
+        if form is Form.BOTH:
+            return DualForm(
+                sum=model.fixed.mean_at(model, i),
+                matrix=model.matrix_mean()[i, 0],
+            )
+        if form is Form.SUM:
+            return model.fixed.mean_at(model, i)
+        return model.matrix_mean()[i, 0]
+    if form is Form.SUM:
+        raise FormArityError("mean requires an index for form='sum'")
+    matrix = model.matrix_mean()
+    if form is Form.MATRIX:
+        return matrix
+    return DualForm(sum=EntryMap(lambda k, _=0: model.fixed.mean_at(model, k)), matrix=matrix)
+
+
+def covariance(
+    model: Any,
+    i: Any | None = None,
+    j: Any | None = None,
+    form: str | Form | None = None,
+) -> Any:
+    """Return the marginal covariance."""
+    form = require_form(form)
+    if (i is None) != (j is None):
+        raise FormArityError("covariance requires both indices or neither")
+    if i is None:
+        if form is Form.SUM:
+            raise FormArityError("covariance requires indices for form='sum'")
+        matrix = model.matrix_covariance()
+        if form is Form.MATRIX:
+            return matrix
+        return DualForm(sum=EntryMap(model.covariance_entry), matrix=matrix)
+    if form is Form.SUM:
+        return model.covariance_entry(i, j)
+    if form is Form.MATRIX:
+        return model.matrix_covariance()[i, j]
+    return DualForm(
+        sum=model.covariance_entry(i, j),
+        matrix=model.matrix_covariance()[i, j],
+    )
+
+
+def variance(
+    model: Any,
+    i: Any | None = None,
+    form: str | Form | None = None,
+) -> Any:
+    """Return the marginal variance vector or entry."""
+    form = require_form(form)
+    if i is None:
+        if form is Form.SUM:
+            raise FormArityError("variance requires an index for form='sum'")
+        # DiagonalOf is a column vector of variances, not a diagonal matrix.
+        vector = sp.matrices.expressions.diagonal.DiagonalOf(model.matrix_covariance())
+        if form is Form.MATRIX:
+            return vector
+        return DualForm(sum=EntryMap(lambda k: model.covariance_entry(k, k)), matrix=vector)
+    if form is Form.SUM:
+        return model.covariance_entry(i, i)
+    if form is Form.MATRIX:
+        return model.matrix_covariance()[i, i]
+    return DualForm(
+        sum=model.covariance_entry(i, i),
+        matrix=model.matrix_covariance()[i, i],
+    )
+
+
+def correlation(
+    model: Any,
+    i: Any | None = None,
+    j: Any | None = None,
+    form: str | Form | None = None,
+) -> Any:
+    """Return the marginal correlation."""
+    form = require_form(form)
+    if (i is None) != (j is None):
+        raise FormArityError("correlation requires both indices or neither")
+    corr = sp.MatrixSymbol("Corr", model.n, model.n)
+    if i is None:
+        if form is Form.MATRIX:
+            return corr
+        return DualForm(
+            sum=EntryMap(lambda a, b: _correlation_entry(model, a, b)),
+            matrix=corr,
+        )
+    entry = _correlation_entry(model, i, j)
+    if form is Form.SUM:
+        return entry
+    if form is Form.MATRIX:
+        return corr[i, j]
+    return DualForm(sum=entry, matrix=corr[i, j])
+
+
+def _correlation_entry(model: Any, i: Any, j: Any) -> Any:
+    vi = model.covariance_entry(i, i)
+    vj = model.covariance_entry(j, j)
+    return model.covariance_entry(i, j) / sp.sqrt(vi * vj)
+
+
+def conditional_mean(
+    model: Any,
+    i: Any | None = None,
+    form: str | Form | None = None,
+) -> Any:
+    """Return E[y | b]."""
+    form = require_form(form)
+    if i is None:
+        n, q = model.dimensions()
+        Z = sp.MatrixSymbol("Z", n, q)
+        b = sp.MatrixSymbol("b", q, 1)
+        matrix = model.matrix_mean() + Z * b
+        if form is Form.SUM:
+            raise FormArityError("conditional_mean requires an index for form='sum'")
+        if form is Form.MATRIX:
+            return matrix
+        return DualForm(
+            sum=EntryMap(lambda k: _conditional_mean_entry(model, k)),
+            matrix=matrix,
+        )
+    entry = _conditional_mean_entry(model, i)
+    if form is Form.SUM:
+        return entry
+    matrix = sp.MatrixSymbol("conditional_mu", model.n, 1)[i, 0]
+    if form is Form.MATRIX:
+        return matrix
+    return DualForm(sum=entry, matrix=matrix)
+
+
+def _conditional_mean_entry(model: Any, i: Any) -> Any:
+    value = model.fixed.mean_at(model, i)
+    for term in model.random:
+        z = term.z(model, i) if hasattr(term, "z") else sp.Matrix([1])
+        for a in range(term.cov.dim):
+            value += z[a] * sp.IndexedBase(f"b_{term.group}")[a]
+    return value
