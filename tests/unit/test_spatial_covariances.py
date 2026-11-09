@@ -56,9 +56,32 @@ def test_matern_five_halves_entry():
 def test_matern_rejects_unsupported_nu():
     sigma2 = sp.Symbol("sigma2", positive=True)
     phi = sp.Symbol("phi", positive=True)
-    cov = Matern(var=sigma2, range=phi, nu=sp.Integer(1))
     with pytest.raises(ValueError, match="unsupported Matern nu"):
-        cov.entry_from_distance(sp.Symbol("h", positive=True))
+        Matern(var=sigma2, range=phi, nu=sp.Integer(1))
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda var, phi: Exponential(var=var, range=phi),
+        lambda var, phi: Gaussian(var=var, range=phi),
+        lambda var, phi: Matern(var=var, range=phi, nu=sp.Rational(1, 2)),
+        lambda var, phi: Matern(var=var, range=phi, nu=sp.Rational(3, 2)),
+        lambda var, phi: Matern(var=var, range=phi, nu=sp.Rational(5, 2)),
+    ],
+)
+def test_spatial_constraints(factory):
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    phi = sp.Symbol("phi", positive=True)
+
+    constraints = factory(sigma2, phi).constraints()
+
+    assert [constraint.message for constraint in constraints] == ["sigma2 > 0", "range > 0"]
+    var_constraint, range_constraint = constraints
+    assert var_constraint.holds({sigma2: 1, phi: 1}) is True
+    assert var_constraint.holds({sigma2: -1, phi: 1}) is False
+    assert range_constraint.holds({sigma2: 1, phi: 1}) is True
+    assert range_constraint.holds({sigma2: 1, phi: -1}) is False
 
 
 @pytest.mark.parametrize(

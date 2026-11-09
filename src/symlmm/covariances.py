@@ -211,6 +211,13 @@ class Exponential(ResidualCovariance):
         """Return the covariance entry for a distance."""
         return self.var * sp.exp(-distance / self.range)
 
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        return (
+            Constraint(self.var, Relation.GT, "sigma2 > 0"),
+            Constraint(self.range, Relation.GT, "range > 0"),
+        )
+
 
 class Gaussian(ResidualCovariance):
     """Gaussian spatial covariance."""
@@ -227,11 +234,20 @@ class Gaussian(ResidualCovariance):
         """Return the covariance entry for a distance."""
         return self.var * sp.exp(-(distance**2) / (2 * self.range**2))
 
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        return (
+            Constraint(self.var, Relation.GT, "sigma2 > 0"),
+            Constraint(self.range, Relation.GT, "range > 0"),
+        )
+
 
 class Matern(ResidualCovariance):
     """Matern spatial covariance for nu in {1/2, 3/2, 5/2}."""
 
     def __init__(self, *, var: sp.Expr, range: sp.Expr, nu: sp.Expr) -> None:
+        if nu not in (sp.Rational(1, 2), sp.Rational(3, 2), sp.Rational(5, 2)):
+            raise CovarianceConstructionError(f"unsupported Matern nu: {nu}")
         self.var = var
         self.range = range
         self.nu = nu
@@ -254,3 +270,10 @@ class Matern(ResidualCovariance):
                 * sp.exp(-sp.sqrt(5) * scaled)
             )
         raise CovarianceConstructionError(f"unsupported Matern nu: {self.nu}")
+
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        return (
+            Constraint(self.var, Relation.GT, "sigma2 > 0"),
+            Constraint(self.range, Relation.GT, "range > 0"),
+        )
