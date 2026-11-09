@@ -24,7 +24,7 @@ from .errors import (
 )
 from .forms import DualForm, EntryMap, Form, require_form
 from .model import IndexedModel
-from .specs import Crossed, Group, Nested
+from .specs import Crossed, Fixed, Group, Nested
 from .symbols import observation_index, parameter
 
 __version__ = version("symlmm")
@@ -34,6 +34,7 @@ __all__ = [
     "Crossed",
     "DualForm",
     "EntryMap",
+    "Fixed",
     "Form",
     "FormArityError",
     "FormError",
