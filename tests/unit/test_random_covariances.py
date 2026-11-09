@@ -117,6 +117,30 @@ def test_unstructured_from_cholesky():
     assert covariance.constraints() == ()
 
 
+def test_unstructured_rejects_asymmetric_matrix():
+    with pytest.raises(CovarianceConstructionError, match="symmetric"):
+        Unstructured(sp.Matrix([[1, 2], [3, 4]]))
+
+
+def test_unstructured_rejects_non_square_matrix():
+    with pytest.raises(CovarianceConstructionError, match="square"):
+        Unstructured(sp.Matrix([[1, 2, 3], [4, 5, 6]]))
+
+
+def test_unstructured_rejects_non_positive_definite_matrix():
+    with pytest.raises(CovarianceConstructionError, match="positive definite"):
+        Unstructured(sp.Matrix([[-1]]))
+
+
+def test_unstructured_from_sd_corr_and_cholesky_construct_valid():
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    rho = sp.Symbol("rho", real=True)
+    assert Unstructured.from_sd_corr([s0, s1], rho).dim == 2
+
+    a, b, c = sp.symbols("a b c", positive=True)
+    assert Unstructured.from_cholesky(sp.Matrix([[a, 0], [b, c]])).dim == 2
+
+
 def test_iid_entry_and_constraints():
     sigma2 = sp.Symbol("sigma2", positive=True)
     covariance = IID(var=sigma2)

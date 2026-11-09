@@ -93,10 +93,9 @@ class AR1(ResidualCovariance):
     def __init__(self, *, group: str, time: str, var: sp.Expr, rho: sp.Expr) -> None:
         """Build an AR(1) residual covariance.
 
-        ``time`` is the model's time-column name and is retained as metadata.
-        The covariance uses the canonical ``model.time(i)`` symbol so AR(1),
-        ``design``, and ``icc`` share one time variable. A future model that
-        needs a named time column must thread it through ``IndexedModel``.
+        ``time`` is the named time coordinate and is used by the covariance via
+        ``model.time(i, self.time)``. With the default time resolution this is
+        the same symbol as the canonical ``model.time(i)``.
         """
         self.group = group
         self.time = time
@@ -106,7 +105,7 @@ class AR1(ResidualCovariance):
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        lag = sp.Abs(model.time(i) - model.time(j))
+        lag = sp.Abs(model.time(i, self.time) - model.time(j, self.time))
         return self.var * self.rho**lag * same_group
 
     def constraints(self) -> tuple[Constraint, ...]:
@@ -146,6 +145,12 @@ class Unstructured(CovarianceSpec):
     """Unstructured covariance, parameterized by SDs and correlations."""
 
     def __init__(self, matrix: sp.MatrixBase) -> None:
+        if matrix.rows != matrix.cols:
+            raise CovarianceConstructionError("covariance matrix must be square")
+        if matrix != matrix.T:
+            raise CovarianceConstructionError("covariance matrix must be symmetric")
+        if is_positive_definite(matrix) is False:
+            raise CovarianceConstructionError("covariance matrix must be positive definite")
         self.matrix = matrix
         self._corr: sp.Expr | None = None
 
