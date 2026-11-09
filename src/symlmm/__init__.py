@@ -9,6 +9,7 @@ from .constraints import (
     is_positive_definite,
 )
 from .covariances import (
+    AR1,
     IID,
     CovarianceSpec,
     Diagonal,
@@ -41,12 +42,14 @@ from .forms import (
     sum_to_matrix,
 )
 from .model import LMM, IndexedModel
+from .simplify import canonicalize
 from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
 from .symbols import observation_index, parameter
 
 __version__ = version("symlmm")
 
 __all__ = [
+    "AR1",
     "IID",
     "LMM",
     "Constraint",
@@ -80,6 +83,7 @@ __all__ = [
     "Unstructured",
     "UnsupportedForm",
     "__version__",
+    "canonicalize",
     "check_constraints",
     "is_positive_definite",
     "matrix_to_sum",
