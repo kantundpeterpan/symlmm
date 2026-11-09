@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
+from .covariances import IID, ResidualCovariance
 from .errors import ModelError
-from .specs import Crossed, Group, Nested
+from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
 from .symbols import observation_index
 
 GroupSpec = Group | Nested | Crossed
+
+__all__ = ["IID", "LMM", "IndexedModel"]
 
 
 class IndexedModel:
@@ -65,3 +68,51 @@ class IndexedModel:
             terms.append(self.time(i))
         terms.extend(self.covariate(i, name) for name in self.covariates if name != self.time_name)
         return sp.Matrix(terms)
+
+
+class LMM(IndexedModel):
+    """Linear mixed model assembled from fixed, random, and residual terms."""
+
+    def __init__(
+        self,
+        *,
+        fixed: Fixed,
+        random: Iterable[RandomIntercept],
+        residual: ResidualCovariance,
+        n: Any | None = None,
+    ) -> None:
+        self.fixed = fixed
+        self.random = tuple(random)
+        self.residual = residual
+        groups = tuple(Group(term.group) for term in self.random)
+        super().__init__(
+            n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
+            groups=groups,
+            time=None,
+            covariates=tuple(fixed.slopes),
+        )
+
+    def levels(self, factor: str) -> Any:
+        """Return the symbolic number of levels for a grouping factor."""
+        return sp.Symbol(f"m_{factor}", positive=True, integer=True)
+
+    def dimensions(self) -> tuple[Any, Any]:
+        """Return observations and total random-coefficient dimension."""
+        q = sum(self.levels(term.group) * term.cov.dim for term in self.random)
+        return self.n, q
+
+    def matrix_mean(self) -> Any:
+        """Return the abstract matrix form of E[y]."""
+        n = self.n
+        p = len(self.fixed.coefficients())
+        X = sp.MatrixSymbol("X", n, p)
+        beta = sp.MatrixSymbol("beta", p, 1)
+        return X * beta
+
+    def matrix_covariance(self) -> Any:
+        """Return the abstract matrix form of V = Z G Z' + R."""
+        n, q = self.dimensions()
+        Z = sp.MatrixSymbol("Z", n, q)
+        G = sp.MatrixSymbol("G", q, q)
+        R = sp.MatrixSymbol("R", n, n)
+        return Z * G * Z.T + R
