@@ -58,7 +58,7 @@ def evaluate(model: Any, mapping: Mapping[Any, Any]) -> Any:
     """Return a numeric SymPy object after substitution."""
     result = model.subs(mapping)
     expression = result.matrix_covariance()
-    free = expression.free_symbols - set(mapping)
+    free = expression.free_symbols
     if free:
         raise UnresolvedSymbols(f"unresolved symbols: {sorted(map(str, free))}")
     return expression

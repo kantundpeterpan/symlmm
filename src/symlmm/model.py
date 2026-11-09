@@ -169,7 +169,7 @@ class LMM(IndexedModel):
     def matrix_x(self) -> Any:
         """Return the fixed-effect design matrix."""
         if not self._dense:
-            return self.matrix_mean()
+            return sp.MatrixSymbol("X", self.n, len(self.fixed.coefficients()))
         columns = []
         if self.fixed.intercept is not None:
             columns.append(sp.ones(self.n, 1))

@@ -44,6 +44,30 @@ def test_dense_assembly_matches_z_g_z_transpose_plus_r():
     assert sp.simplify(V - (Z * G * Z.T + R)) == sp.zeros(4, 4)
 
 
+def test_matrix_x_returns_design_matrix():
+    b0 = sp.Symbol("b0")
+    beta = sp.Symbol("beta")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0, slopes={"time": beta}),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        n=4,
+    )
+    symbolic = model.matrix_x()
+    assert symbolic.shape == (4, 2)
+    dense = model.dense(subject=[0, 0, 1, 1], time=[0, 2, 1, 3])
+    assert dense.matrix_x() == sp.Matrix(
+        [
+            [1, 0],
+            [1, 2],
+            [1, 1],
+            [1, 3],
+        ]
+    )
+
+
 def test_dense_random_slope_uses_observation_times():
     tau2 = sp.Symbol("tau2", positive=True)
     sigma2 = sp.Symbol("sigma2", positive=True)

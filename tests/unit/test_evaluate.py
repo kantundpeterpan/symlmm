@@ -46,6 +46,16 @@ def test_evaluate_reports_unresolved_symbols():
         model.evaluate({sp.Symbol("b0"): 1})
 
 
+def test_evaluate_rejects_missing_dense_symbol():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    dense = _model().dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 1])
+    with pytest.raises(UnresolvedSymbols):
+        dense.evaluate({sigma2: 1})
+    with pytest.raises(UnresolvedSymbols):
+        dense.evaluate({tau2: tau2, sigma2: 1})
+
+
 def test_evaluate_returns_numeric_matrix():
     tau2 = sp.Symbol("tau2", positive=True)
     sigma2 = sp.Symbol("sigma2", positive=True)
