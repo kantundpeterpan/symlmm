@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import sympy as sp  # type: ignore[import-untyped]
@@ -88,10 +88,16 @@ class LMM(IndexedModel):
         self.random = tuple(random)
         self.residual = residual
         groups = tuple(Group(term.group) for term in self.random)
+        if hasattr(residual, "group"):
+            groups = groups + (Group(residual.group),)
+        time = getattr(residual, "time", None) or next(
+            (getattr(term, "time", None) for term in self.random if getattr(term, "time", None)),
+            None,
+        )
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
             groups=groups,
-            time=None,
+            time=time,
             covariates=tuple(fixed.slopes),
         )
 
@@ -194,3 +200,28 @@ class LMM(IndexedModel):
         from .moments import conditional_mean
 
         return conditional_mean(self, i, form)
+
+    def icc(
+        self,
+        *,
+        at: Mapping[str, Any] | None = None,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the conditional variance partition coefficient."""
+        from .forms import DualForm, require_form
+
+        form = require_form(form)
+        random_part = sp.Integer(0)
+        for term in self.random:
+            z_accessor = getattr(term, "z", None)
+            z = z_accessor(self, 0) if z_accessor is not None else sp.Matrix([1])
+            term_time = getattr(term, "time", None)
+            if at and term_time is not None:
+                key = self.time(0, term_time)
+                z = z.subs({key: at.get("time", key)})
+            random_part += (z.T * term.cov.dense() * z)[0, 0]
+        residual_part = self.residual.entry(0, 0, self)
+        value = random_part / (random_part + residual_part)
+        if form.value == "sum":
+            return value
+        return DualForm(sum=value, matrix=value)
