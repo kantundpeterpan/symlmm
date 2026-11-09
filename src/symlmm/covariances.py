@@ -60,6 +60,66 @@ class Scalar(CovarianceSpec):
         return (Constraint(self.var, Relation.GT, "tau2 > 0"),)
 
 
+class BlockDiag(CovarianceSpec):
+    """Block-diagonal covariance assembled from explicit blocks.
+
+    v0.1 accepts a finite, explicit sequence of blocks; symbolic block counts
+    are not supported (design decision 9). ``group`` optionally records the
+    grouping factor the blocks belong to.
+    """
+
+    def __init__(
+        self,
+        blocks: Sequence[CovarianceSpec | sp.MatrixBase],
+        group: str | None = None,
+    ) -> None:
+        if not blocks:
+            raise CovarianceConstructionError("BlockDiag requires at least one block")
+        self.blocks = tuple(_as_covariance_block(block) for block in blocks)
+        self.group = group
+
+    @property
+    def dim(self) -> int:
+        """Dimension of the covariance matrix."""
+        return sum(block.dim for block in self.blocks)
+
+    def _block_entry(self, index: int) -> tuple[int, int]:
+        """Return the block position and local index for a global index."""
+        offset = 0
+        for position, block in enumerate(self.blocks):
+            if index < offset + block.dim:
+                return position, index - offset
+            offset += block.dim
+        raise IndexError(f"covariance index out of range: {index}")
+
+    def entry(self, a: int, b: int) -> sp.Expr:
+        """Return the (a, b) entry."""
+        block_a, row = self._block_entry(a)
+        block_b, column = self._block_entry(b)
+        if block_a != block_b:
+            return sp.Integer(0)
+        return self.blocks[block_a].entry(row, column)
+
+    def dense(self) -> sp.Matrix:
+        """Return the explicit block-diagonal matrix."""
+        return sp.diag(*(block.dense() for block in self.blocks))
+
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints for every block."""
+        return tuple(constraint for block in self.blocks for constraint in block.constraints())
+
+
+def _as_covariance_block(block: CovarianceSpec | sp.MatrixBase) -> CovarianceSpec:
+    """Coerce an explicit matrix block into a covariance structure."""
+    if isinstance(block, CovarianceSpec):
+        return block
+    if isinstance(block, sp.MatrixBase):
+        return Unstructured(block)
+    raise CovarianceConstructionError(
+        "BlockDiag blocks must be covariance structures or explicit matrices"
+    )
+
+
 class ResidualCovariance(ABC):
     """Base class for residual covariance structures."""
 

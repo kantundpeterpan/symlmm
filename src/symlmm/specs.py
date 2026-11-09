@@ -5,7 +5,7 @@ from __future__ import annotations
 import types
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
@@ -96,3 +96,23 @@ class RandomIntercept:
 
     group: str
     cov: CovarianceSpec
+
+
+@dataclass(frozen=True)
+class RandomSlope:
+    """Random slope term with a 2x2 covariance."""
+
+    group: str
+    time: str
+    cov: CovarianceSpec
+
+    def z(self, model: IndexedModel, i: Any) -> sp.Matrix:
+        """Return the random-effect design row for observation `i`."""
+        return sp.Matrix([1, model.time(i, self.time)])
+
+    def entry(self, model: IndexedModel, i: Any, j: Any) -> sp.Expr:
+        """Return this term's contribution to the (i, j) covariance entry."""
+        zi = self.z(model, i)
+        zj = self.z(model, j)
+        value = (zi.T * self.cov.dense() * zj)[0, 0]
+        return value * sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))

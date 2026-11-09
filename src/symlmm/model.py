@@ -9,7 +9,7 @@ import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError
-from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
+from .specs import Crossed, Fixed, Group, Nested, RandomIntercept, RandomSlope
 from .symbols import observation_index
 
 if TYPE_CHECKING:
@@ -81,24 +81,28 @@ class LMM(IndexedModel):
         self,
         *,
         fixed: Fixed,
-        random: Iterable[RandomIntercept],
+        random: Iterable[RandomIntercept | RandomSlope],
         residual: ResidualCovariance,
+        groups: Sequence[GroupSpec] | None = None,
         n: Any | None = None,
     ) -> None:
         self.fixed = fixed
         self.random = tuple(random)
         self.residual = residual
-        groups = tuple(Group(term.group) for term in self.random)
+        registered: dict[str, GroupSpec] = {}
+        for spec in groups or ():
+            registered.setdefault(spec.name, spec)
+        for term in self.random:
+            registered.setdefault(term.group, Group(term.group))
         if hasattr(residual, "group"):
-            groups = groups + (Group(residual.group),)
-        groups = tuple(dict.fromkeys(groups))
+            registered.setdefault(residual.group, Group(residual.group))
         time = getattr(residual, "time", None) or next(
             (getattr(term, "time", None) for term in self.random if getattr(term, "time", None)),
             None,
         )
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
-            groups=groups,
+            groups=tuple(registered.values()),
             time=time,
             covariates=tuple(fixed.slopes),
         )
@@ -128,7 +132,7 @@ class LMM(IndexedModel):
         R = sp.MatrixSymbol("R", n, n)
         return Z * G * Z.T + R
 
-    def _random_term_entry(self, term: RandomIntercept, i: Any, j: Any) -> Any:
+    def _random_term_entry(self, term: RandomIntercept | RandomSlope, i: Any, j: Any) -> Any:
         """Return the structured contribution of one random term."""
         z_accessor = getattr(term, "z", None)
         zi = z_accessor(self, i) if z_accessor is not None else sp.Matrix([1])
@@ -140,7 +144,11 @@ class LMM(IndexedModel):
         """Return the structured sum-form covariance entry."""
         total = self.residual.entry(i, j, self)
         for term in self.random:
-            total += self._random_term_entry(term, i, j)
+            entry = getattr(term, "entry", None)
+            if entry is not None:
+                total += entry(self, i, j)
+            else:
+                total += self._random_term_entry(term, i, j)
         return total
 
     def mean(
