@@ -87,6 +87,96 @@ class IID(ResidualCovariance):
         return (Constraint(self.var, Relation.GT, "sigma2 > 0"),)
 
 
+class CompoundSymmetry(ResidualCovariance):
+    """Compound-symmetry residual covariance within groups."""
+
+    def __init__(self, *, group: str, var: sp.Expr, rho: sp.Expr) -> None:
+        """Build a compound-symmetry residual covariance."""
+        self.group = group
+        self.var = var
+        self.rho = rho
+
+    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
+        """Return the (i, j) observation entry."""
+        if i == j:
+            return self.var
+        same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+        return self.var * self.rho * same_group
+
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        return (
+            Constraint(self.rho + 1, Relation.GT, "rho > -1/(m_min - 1)"),
+            Constraint(self.var, Relation.GT, "sigma2 > 0"),
+        )
+
+
+class Toeplitz(ResidualCovariance):
+    """Toeplitz residual covariance with lag parameters."""
+
+    def __init__(
+        self,
+        *,
+        group: str,
+        time: str,
+        variances: Sequence[sp.Expr],
+        correlations: Sequence[sp.Expr],
+    ) -> None:
+        """Build a Toeplitz residual covariance from variance and lag correlations."""
+        self.group = group
+        self.time = time
+        self.variances = tuple(variances)
+        self.correlations = tuple(correlations)
+
+    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
+        """Return the (i, j) observation entry."""
+        same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+        lag = sp.Abs(model.time(i, self.time) - model.time(j, self.time))
+        return self._lag_value(lag) * same_group
+
+    def _lag_value(self, lag: sp.Expr) -> sp.Expr:
+        """Return the covariance value for a time lag."""
+        if lag.is_Integer:
+            distance = int(lag)
+            if distance == 0:
+                return self.variances[0]
+            if distance <= len(self.correlations):
+                return self.variances[0] * self.correlations[distance - 1]
+            return sp.Integer(0)
+        return sp.Piecewise(
+            *(
+                (self.variances[0] * correlation, sp.Eq(lag, distance))
+                for distance, correlation in enumerate(self.correlations, start=1)
+            ),
+            (sp.Integer(0), True),
+        )
+
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        return (Constraint(self.variances[0], Relation.GT, "sigma2 > 0"),)
+
+
+class Heteroscedastic(ResidualCovariance):
+    """Observation-specific residual variances."""
+
+    def __init__(self, *, variances: Sequence[sp.Expr]) -> None:
+        """Build a heteroscedastic residual covariance."""
+        self.variances = tuple(variances)
+
+    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
+        """Return the (i, j) observation entry."""
+        if i == j:
+            return self.variances[int(i)]
+        return sp.Integer(0)
+
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        return tuple(
+            Constraint(value, Relation.GT, f"sigma2[{k}] > 0")
+            for k, value in enumerate(self.variances)
+        )
+
+
 class AR1(ResidualCovariance):
     """AR(1) residual covariance within groups."""
 
