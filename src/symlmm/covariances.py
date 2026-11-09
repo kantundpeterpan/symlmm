@@ -90,12 +90,14 @@ class IID(ResidualCovariance):
 class CompoundSymmetry(ResidualCovariance):
     """Compound-symmetry residual covariance within groups."""
 
-    def __init__(self, *, group: str, var: sp.Expr, rho: sp.Expr, m_min: int = 2) -> None:
+    def __init__(self, *, group: str, var: sp.Expr, rho: sp.Expr, m_max: int = 2) -> None:
         """Build a compound-symmetry residual covariance."""
+        if m_max < 2:
+            raise CovarianceConstructionError("m_max must be at least 2")
         self.group = group
         self.var = var
         self.rho = rho
-        self.m_min = m_min
+        self.m_max = m_max
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
@@ -109,10 +111,11 @@ class CompoundSymmetry(ResidualCovariance):
         """Return parameter constraints."""
         return (
             Constraint(
-                (self.m_min - 1) * self.rho + 1,
+                (self.m_max - 1) * self.rho + 1,
                 Relation.GT,
-                f"rho > -1/({self.m_min}-1)",
+                f"rho > -1/({self.m_max}-1)",
             ),
+            Constraint(1 - self.rho, Relation.GT, "rho < 1"),
             Constraint(self.var, Relation.GT, "sigma2 > 0"),
         )
 

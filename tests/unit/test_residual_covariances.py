@@ -1,8 +1,10 @@
 """Residual covariance structure tests."""
 
+import pytest
 import sympy as sp
 
 from symlmm.covariances import IID, CompoundSymmetry, Heteroscedastic, Toeplitz
+from symlmm.errors import CovarianceConstructionError
 from symlmm.model import IndexedModel
 from symlmm.specs import Group
 
@@ -97,19 +99,31 @@ def test_compound_symmetry_constraints():
     rho = sp.Symbol("rho", real=True)
     cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho)
     messages = [constraint.message for constraint in cov.constraints()]
-    assert messages == ["rho > -1/(2-1)", "sigma2 > 0"]
+    assert messages == ["rho > -1/(2-1)", "rho < 1", "sigma2 > 0"]
 
 
 def test_compound_symmetry_constraints_at_boundary():
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", real=True)
-    cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho, m_min=3)
-    constraint = cov.constraints()[0]
+    cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho, m_max=3)
+    lower, upper, _ = cov.constraints()
 
-    assert constraint.message == "rho > -1/(3-1)"
-    assert constraint.holds({rho: sp.Rational(-2, 5)}) is True
-    assert constraint.holds({rho: sp.Rational(-1, 2)}) is False
-    assert constraint.holds({rho: sp.Rational(-3, 5)}) is False
+    assert lower.message == "rho > -1/(3-1)"
+    assert upper.message == "rho < 1"
+    assert lower.holds({rho: sp.Rational(1, 2)}) is True
+    assert upper.holds({rho: sp.Rational(1, 2)}) is True
+    assert lower.holds({rho: sp.Rational(-1, 2)}) is False
+    assert lower.holds({rho: sp.Rational(-3, 5)}) is False
+    assert upper.holds({rho: 1}) is False
+    assert upper.holds({rho: sp.Rational(3, 2)}) is False
+
+
+def test_compound_symmetry_rejects_small_m_max():
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", real=True)
+
+    with pytest.raises(CovarianceConstructionError, match="at least 2"):
+        CompoundSymmetry(group="subject", var=sigma2, rho=rho, m_max=1)
 
 
 def test_toeplitz_constraints():
