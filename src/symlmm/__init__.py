@@ -8,7 +8,17 @@ from .constraints import (
     check_constraints,
     is_positive_definite,
 )
+from .covariances import (
+    IID,
+    CovarianceSpec,
+    Diagonal,
+    RandomCovariance,
+    ResidualCovariance,
+    Scalar,
+    Unstructured,
+)
 from .errors import (
+    CovarianceConstructionError,
     FormArityError,
     FormError,
     InvalidFormError,
@@ -30,8 +40,12 @@ from .symbols import observation_index, parameter
 __version__ = version("symlmm")
 
 __all__ = [
+    "IID",
     "Constraint",
+    "CovarianceConstructionError",
+    "CovarianceSpec",
     "Crossed",
+    "Diagonal",
     "DualForm",
     "EntryMap",
     "Fixed",
@@ -48,9 +62,13 @@ __all__ = [
     "NotDecomposable",
     "NotDefined",
     "ParameterConstraintError",
+    "RandomCovariance",
     "Relation",
+    "ResidualCovariance",
+    "Scalar",
     "SymlmmError",
     "UnresolvedSymbols",
+    "Unstructured",
     "UnsupportedForm",
     "__version__",
     "check_constraints",
