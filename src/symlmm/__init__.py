@@ -59,6 +59,8 @@ __version__ = version("symlmm")
 
 __all__ = [
     "AR1",
+    "IID",
+    "LMM",
     "BlockDiag",
     "CompoundSymmetry",
     "Constraint",
@@ -76,10 +78,8 @@ __all__ = [
     "Gaussian",
     "Group",
     "Heteroscedastic",
-    "IID",
     "IndexedModel",
     "InvalidFormError",
-    "LMM",
     "Matern",
     "MissingFormError",
     "ModelError",
