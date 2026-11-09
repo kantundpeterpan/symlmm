@@ -23,6 +23,9 @@ __all__ = ["IID", "LMM", "IndexedModel"]
 class IndexedModel:
     """Base class for models over a stacked observation vector."""
 
+    _dense: bool = False
+    _observations: Mapping[str, Sequence[Any]]
+
     def __init__(
         self,
         *,
@@ -48,8 +51,21 @@ class IndexedModel:
                 return spec
         raise ModelError(f"unknown grouping factor: {factor!r}")
 
+    def _observation_column(self, name: str) -> Sequence[Any]:
+        """Return the dense observation column named `name`."""
+        try:
+            return self._observations[name]
+        except KeyError as exc:
+            raise ModelError(f"dense mode missing observation column: {name!r}") from exc
+
+    def _observation_value(self, i: Any, name: str) -> Any:
+        """Return the dense value at observation `i` for column `name`."""
+        return sp.sympify(self._observation_column(name)[int(i)])
+
     def group(self, i: Any, factor: str) -> Any:
         """Return the group label for observation `i` and factor `factor`."""
+        if self._dense:
+            return self._observation_value(i, factor)
         spec = self._group_spec(factor)
         return sp.IndexedBase(spec.label, shape=(self.n,))[i]
 
@@ -59,10 +75,14 @@ class IndexedModel:
             name = self.time_name if self.time_name is not None else "t"
         else:
             name = coordinate
+        if self._dense:
+            return self._observation_value(i, name)
         return sp.IndexedBase(name, shape=(self.n,))[i]
 
     def covariate(self, i: Any, name: str) -> Any:
         """Return a covariate value for observation `i`."""
+        if self._dense:
+            return self._observation_value(i, name)
         return sp.IndexedBase(name, shape=(self.n,))[i]
 
     def design(self, i: Any) -> Any:
@@ -113,24 +133,148 @@ class LMM(IndexedModel):
 
     def dimensions(self) -> tuple[Any, Any]:
         """Return observations and total random-coefficient dimension."""
+        if self._dense:
+            q = sum(
+                len(set(self._observation_column(term.group))) * term.cov.dim
+                for term in self.random
+            )
+            return self.n, q
         q = sum(self.levels(term.group) * term.cov.dim for term in self.random)
         return self.n, q
 
+    def dense(
+        self,
+        observations: Mapping[str, Sequence[Any]] | None = None,
+        **columns: Sequence[Any],
+    ) -> LMM:
+        """Return a concrete copy with observation data."""
+        data: dict[str, Sequence[Any]] = dict(observations or {})
+        data.update(columns)
+        if not data:
+            raise ModelError("dense mode requires observation columns")
+        lengths = {len(values) for values in data.values()}
+        if len(lengths) != 1:
+            raise ModelError("dense mode observation columns must have equal length")
+        dense: LMM = object.__new__(type(self))
+        dense.__dict__ = self.__dict__.copy()
+        dense._observations = data
+        dense._dense = True
+        dense.n = lengths.pop()
+        return dense
+
+    def _column(self, name: str) -> Any:
+        """Return a dense observation column as a matrix."""
+        return sp.Matrix(self._observation_column(name))
+
+    def matrix_x(self) -> Any:
+        """Return the fixed-effect design matrix."""
+        if not self._dense:
+            return self.matrix_mean()
+        columns = []
+        if self.fixed.intercept is not None:
+            columns.append(sp.ones(self.n, 1))
+        for name in self.fixed.slopes:
+            columns.append(self._column(name))
+        if not columns:
+            return sp.zeros(self.n, 0)
+        return sp.Matrix.hstack(*columns)
+
+    def matrix_z(self) -> Any:
+        """Return the random-effect design matrix."""
+        if not self._dense:
+            n, q = self.dimensions()
+            return sp.MatrixSymbol("Z", n, q)
+        columns = []
+        for term in self.random:
+            labels = list(self._observation_column(term.group))
+            time_name = getattr(term, "time", None)
+            if time_name is None:
+                times = [0] * len(labels)
+            else:
+                times = list(self._observations.get(time_name, [0] * len(labels)))
+            for level in sorted(set(labels)):
+                for a in range(term.cov.dim):
+                    column = []
+                    for label, t in zip(labels, times):
+                        if label != level:
+                            column.append(0)
+                        elif term.cov.dim == 1:
+                            column.append(1)
+                        else:
+                            column.append(1 if a == 0 else t)
+                    columns.append(sp.Matrix(column))
+        if not columns:
+            return sp.zeros(self.n, 0)
+        return sp.Matrix.hstack(*columns)
+
+    def matrix_g(self) -> Any:
+        """Return the block-diagonal random-effect covariance matrix."""
+        if not self._dense:
+            _, q = self.dimensions()
+            return sp.MatrixSymbol("G", q, q)
+        from sympy.matrices.expressions.blockmatrix import BlockDiagMatrix  # type: ignore[import-untyped]
+
+        blocks = []
+        for term in self.random:
+            labels = sorted(set(self._observation_column(term.group)))
+            blocks.extend([term.cov.dense()] * len(labels))
+        if not blocks:
+            return sp.zeros(0, 0)
+        return BlockDiagMatrix(*blocks).as_explicit()
+
+    def matrix_r(self) -> Any:
+        """Return the residual covariance matrix."""
+        if not self._dense:
+            return sp.MatrixSymbol("R", self.n, self.n)
+        return sp.Matrix(
+            self.n,
+            self.n,
+            lambda a, b: self.residual.entry(sp.Integer(a), sp.Integer(b), self),
+        )
+
     def matrix_mean(self) -> Any:
-        """Return the abstract matrix form of E[y]."""
-        n = self.n
-        p = len(self.fixed.coefficients())
-        X = sp.MatrixSymbol("X", n, p)
-        beta = sp.MatrixSymbol("beta", p, 1)
-        return X * beta
+        """Return the matrix form of E[y]."""
+        if not self._dense:
+            n = self.n
+            p = len(self.fixed.coefficients())
+            X = sp.MatrixSymbol("X", n, p)
+            beta = sp.MatrixSymbol("beta", p, 1)
+            return X * beta
+        return self.matrix_x() * sp.Matrix(self.fixed.coefficients())
 
     def matrix_covariance(self) -> Any:
-        """Return the abstract matrix form of V = Z G Z' + R."""
-        n, q = self.dimensions()
-        Z = sp.MatrixSymbol("Z", n, q)
-        G = sp.MatrixSymbol("G", q, q)
-        R = sp.MatrixSymbol("R", n, n)
-        return Z * G * Z.T + R
+        """Return the matrix form of V = Z G Z' + R."""
+        if not self._dense:
+            n, q = self.dimensions()
+            Z = sp.MatrixSymbol("Z", n, q)
+            G = sp.MatrixSymbol("G", q, q)
+            R = sp.MatrixSymbol("R", n, n)
+            return Z * G * Z.T + R
+        n = self.n
+        V = sp.zeros(n, n)
+        for a in range(n):
+            for b in range(n):
+                V[a, b] = self.covariance_entry(sp.Integer(a), sp.Integer(b))
+        return V
+
+    def subs(self, mapping: Mapping[Any, Any]) -> LMM:
+        """Return a new model with substituted parameters."""
+        from .evaluate import subs
+
+        result: LMM = subs(self, mapping)
+        return result
+
+    def evaluate(self, mapping: Mapping[Any, Any]) -> Any:
+        """Return a numeric SymPy object after substitution."""
+        from .evaluate import evaluate
+
+        return evaluate(self, mapping)
+
+    def lambdify(self, args: Any, form: str | Form | None = "matrix") -> Any:
+        """Return a callable over the declared arguments."""
+        from .evaluate import lambdify
+
+        return lambdify(self, args, form)
 
     def _random_term_entry(self, term: RandomIntercept | RandomSlope, i: Any, j: Any) -> Any:
         """Return the structured contribution of one random term."""
