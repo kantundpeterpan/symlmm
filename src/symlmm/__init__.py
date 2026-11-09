@@ -23,19 +23,26 @@ from .errors import (
     UnsupportedForm,
 )
 from .forms import DualForm, EntryMap, Form, require_form
+from .model import IndexedModel
+from .specs import Crossed, Group, Nested
+from .symbols import observation_index, parameter
 
 __version__ = version("symlmm")
 
 __all__ = [
     "Constraint",
+    "Crossed",
     "DualForm",
     "EntryMap",
     "Form",
     "FormArityError",
     "FormError",
+    "Group",
+    "IndexedModel",
     "InvalidFormError",
     "MissingFormError",
     "ModelError",
+    "Nested",
     "NoConditionalModel",
     "NotDecomposable",
     "NotDefined",
@@ -47,5 +54,7 @@ __all__ = [
     "__version__",
     "check_constraints",
     "is_positive_definite",
+    "observation_index",
+    "parameter",
     "require_form",
 ]
