@@ -33,7 +33,7 @@ def test_matrix_to_sum_builds_lazy_entry_map():
         residual=IID(var=sigma2),
     )
     i, j = model.indices()
-    entry_map = matrix_to_sum(model.matrix_covariance(), model)
+    entry_map = matrix_to_sum(model)
 
     assert isinstance(entry_map, EntryMap)
     assert sp.simplify(entry_map[i, j] - model.covariance_entry(i, j)) == 0
@@ -49,4 +49,19 @@ def test_sum_to_matrix_returns_abstract_covariance():
         residual=IID(var=sigma2),
     )
 
-    assert sum_to_matrix(sp.Symbol("entry"), model) == model.matrix_covariance()
+    assert sum_to_matrix(model) == model.matrix_covariance()
+
+
+def test_bridge_operates_on_model_covariance():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+    )
+    i, j = model.indices()
+
+    assert matrix_to_sum(model)[i, j] == model.covariance_entry(i, j)
+    assert sum_to_matrix(model) == model.matrix_covariance()

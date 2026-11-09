@@ -54,11 +54,11 @@ class DualForm:
     matrix: sp.MatrixExpr | sp.Expr | None
 
 
-def matrix_to_sum(expr: Any, model: Any) -> EntryMap:
-    """Return a lazy entry map for an abstract matrix expression."""
+def matrix_to_sum(model: Any) -> EntryMap:
+    """Return a lazy entry map over the model covariance in sum form."""
     return EntryMap(model.covariance_entry)
 
 
-def sum_to_matrix(expr: Any, model: Any) -> Any:
-    """Return the abstract matrix for a structured expression."""
+def sum_to_matrix(model: Any) -> Any:
+    """Return the model covariance in abstract matrix form."""
     return model.matrix_covariance()
