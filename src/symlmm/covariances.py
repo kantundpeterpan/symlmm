@@ -90,23 +90,29 @@ class IID(ResidualCovariance):
 class CompoundSymmetry(ResidualCovariance):
     """Compound-symmetry residual covariance within groups."""
 
-    def __init__(self, *, group: str, var: sp.Expr, rho: sp.Expr) -> None:
+    def __init__(self, *, group: str, var: sp.Expr, rho: sp.Expr, m_min: int = 2) -> None:
         """Build a compound-symmetry residual covariance."""
         self.group = group
         self.var = var
         self.rho = rho
+        self.m_min = m_min
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        if i == j:
-            return self.var
         same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        return self.var * self.rho * same_group
+        return sp.Piecewise(
+            (self.var, sp.Eq(i, j)),
+            (self.var * self.rho * same_group, True),
+        )
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
         return (
-            Constraint(self.rho + 1, Relation.GT, "rho > -1/(m_min - 1)"),
+            Constraint(
+                (self.m_min - 1) * self.rho + 1,
+                Relation.GT,
+                f"rho > -1/({self.m_min}-1)",
+            ),
             Constraint(self.var, Relation.GT, "sigma2 > 0"),
         )
 
@@ -165,9 +171,11 @@ class Heteroscedastic(ResidualCovariance):
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        if i == j:
-            return self.variances[int(i)]
-        return sp.Integer(0)
+        diagonal = sp.Piecewise(
+            *((value, sp.Eq(i, k)) for k, value in enumerate(self.variances)),
+            (sp.Integer(0), True),
+        )
+        return diagonal * sp.KroneckerDelta(i, j)
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""

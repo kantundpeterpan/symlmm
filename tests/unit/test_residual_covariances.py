@@ -16,14 +16,20 @@ def test_compound_symmetry_entry():
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", real=True)
     model = _model()
-    i, _ = model.indices()
+    i, j = model.indices()
     cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho)
+
     assert cov.entry(i, i, model) == sigma2
+    symbolic = cov.entry(i, j, model)
+    assert symbolic.has(sp.Piecewise)
+    assert symbolic.subs({i: 0, j: 0}) == sigma2
+
+    concrete = symbolic.subs({i: 0, j: 1})
     subject_0 = model.group(0, "subject")
     subject_1 = model.group(1, "subject")
-    within = cov.entry(0, 1, model).subs({subject_0: 1, subject_1: 1})
+    within = concrete.subs({subject_0: 1, subject_1: 1})
     assert sp.simplify(within) == sigma2 * rho
-    between = cov.entry(0, 1, model).subs({subject_0: 1, subject_1: 2})
+    between = concrete.subs({subject_0: 1, subject_1: 2})
     assert between == 0
 
 
@@ -43,6 +49,19 @@ def test_heteroscedastic_entry():
     assert cov.entry(0, 0, model) == s0
     assert cov.entry(1, 1, model) == s1
     assert cov.entry(0, 1, model) == 0
+
+
+def test_heteroscedastic_symbolic_entry():
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    model = _model()
+    i, j = model.indices()
+    cov = Heteroscedastic(variances=[s0, s1])
+
+    diagonal = cov.entry(i, i, model)
+    assert diagonal.subs({i: 0}) == s0
+    assert diagonal.subs({i: 1}) == s1
+    assert cov.entry(i, j, model).has(sp.KroneckerDelta)
+    assert cov.entry(i, j, model).subs({i: 0, j: 1}) == 0
 
 
 class _NumericModel:
@@ -78,7 +97,19 @@ def test_compound_symmetry_constraints():
     rho = sp.Symbol("rho", real=True)
     cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho)
     messages = [constraint.message for constraint in cov.constraints()]
-    assert messages == ["rho > -1/(m_min - 1)", "sigma2 > 0"]
+    assert messages == ["rho > -1/(2-1)", "sigma2 > 0"]
+
+
+def test_compound_symmetry_constraints_at_boundary():
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", real=True)
+    cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho, m_min=3)
+    constraint = cov.constraints()[0]
+
+    assert constraint.message == "rho > -1/(3-1)"
+    assert constraint.holds({rho: sp.Rational(-2, 5)}) is True
+    assert constraint.holds({rho: sp.Rational(-1, 2)}) is False
+    assert constraint.holds({rho: sp.Rational(-3, 5)}) is False
 
 
 def test_toeplitz_constraints():
