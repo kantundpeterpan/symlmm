@@ -5,9 +5,11 @@ from __future__ import annotations
 import types
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sympy as sp  # type: ignore[import-untyped]
+
+from .errors import CovarianceConstructionError
 
 if TYPE_CHECKING:
     from .covariances import CovarianceSpec
@@ -96,3 +98,20 @@ class RandomIntercept:
 
     group: str
     cov: CovarianceSpec
+
+
+@dataclass(frozen=True)
+class RandomSlope:
+    """Random slope term with a 2x2 covariance."""
+
+    group: str
+    time: str
+    cov: CovarianceSpec
+
+    def __post_init__(self) -> None:
+        if self.cov.dim != 2:
+            raise CovarianceConstructionError("RandomSlope covariance must be 2x2")
+
+    def z(self, model: IndexedModel, i: Any) -> sp.Matrix:
+        """Return the random-effect design row for observation `i`."""
+        return sp.Matrix([1, model.time(i, self.time)])
