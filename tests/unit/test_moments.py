@@ -127,7 +127,12 @@ def test_conditional_mean_whole_and_matrix_entry():
     dual = model.conditional_mean(form="both")
     assert isinstance(dual, DualForm)
     assert isinstance(dual.sum, EntryMap)
-    assert model.conditional_mean(i, form="matrix") is not None
+    entry = model.conditional_mean(i, form="matrix")
+    assert entry.has(sp.Sum)
+    n, q = model.dimensions()
+    Z = sp.MatrixSymbol("Z", n, q)
+    b = sp.MatrixSymbol("b", q, 1)
+    assert entry.dummy_eq((model.matrix_mean() + Z * b)[i, 0])
 
 
 def test_sum_whole_vector_queries_raise():
@@ -140,3 +145,5 @@ def test_sum_whole_vector_queries_raise():
         model.covariance(form="sum")
     with pytest.raises(FormArityError):
         model.conditional_mean(form="sum")
+    with pytest.raises(FormArityError):
+        model.correlation(form="sum")

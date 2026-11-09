@@ -94,6 +94,8 @@ def correlation(
         raise FormArityError("correlation requires both indices or neither")
     corr = sp.MatrixSymbol("Corr", model.n, model.n)
     if i is None:
+        if form is Form.SUM:
+            raise FormArityError("correlation requires indices for form='sum'")
         if form is Form.MATRIX:
             return corr
         return DualForm(
@@ -119,7 +121,11 @@ def conditional_mean(
     i: Any | None = None,
     form: str | Form | None = None,
 ) -> Any:
-    """Return E[y | b]."""
+    """Return E[y | b].
+
+    The sum form expands component-wise, where ``b_{group}[a]`` denotes a
+    component of the stacked random-effect vector ``b``.
+    """
     form = require_form(form)
     if i is None:
         n, q = model.dimensions()
@@ -137,7 +143,10 @@ def conditional_mean(
     entry = _conditional_mean_entry(model, i)
     if form is Form.SUM:
         return entry
-    matrix = sp.MatrixSymbol("conditional_mu", model.n, 1)[i, 0]
+    n, q = model.dimensions()
+    Z = sp.MatrixSymbol("Z", n, q)
+    b = sp.MatrixSymbol("b", q, 1)
+    matrix = (model.matrix_mean() + Z * b)[i, 0]
     if form is Form.MATRIX:
         return matrix
     return DualForm(sum=entry, matrix=matrix)
