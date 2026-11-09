@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: symlmm
+abstract: "Symbolic derivation of response moments for linear mixed models, marginal models, and GEE working-covariance models."
+type: software
+
+authors:
+  - family-names: Atze
+    given-names: Heiner
+    email: heiner.atze@gmx.net
+
+version: 0.1.0
+date-released: 2026-11-09
+license: BSD-3-Clause
+
+repository-code: "https://github.com/symlmm/symlmm"
+
+keywords:
+  - linear mixed models
+  - marginal models
+  - generalized estimating equations
+  - symbolic computation
+  - statistics
