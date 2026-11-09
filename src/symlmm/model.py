@@ -226,6 +226,31 @@ class LMM(IndexedModel):
 
         return conditional_variance(self, i, form)
 
+    def variogram(
+        self,
+        i: Any,
+        j: Any,
+        *,
+        kind: str,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return a raw, residual, or conditional variogram entry."""
+        from .variogram import variogram
+
+        return variogram(self, i, j, kind, form)
+
+    def covariogram(
+        self,
+        i: Any,
+        j: Any,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the covariogram entry Cov(y_i, y_j)."""
+        from .variogram import covariogram
+
+        return covariogram(self, i, j, form)
+
     def icc(
         self,
         *,
