@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
-from .errors import ModelError
+from .errors import FormArityError, ModelError
 from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
 from .symbols import observation_index
+
+if TYPE_CHECKING:
+    from .forms import Form
 
 GroupSpec = Group | Nested | Crossed
 
@@ -131,3 +134,63 @@ class LMM(IndexedModel):
         for term in self.random:
             total += self._random_term_entry(term, i, j)
         return total
+
+    def mean(
+        self,
+        i: Any | None = None,
+        j: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the marginal mean in the requested form."""
+        if j is not None:
+            raise FormArityError("mean accepts at most one index")
+        from .moments import mean
+
+        return mean(self, i, form)
+
+    def covariance(
+        self,
+        i: Any | None = None,
+        j: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the marginal covariance in the requested form."""
+        from .moments import covariance
+
+        return covariance(self, i, j, form)
+
+    def variance(
+        self,
+        i: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the marginal variance vector or entry in the requested form."""
+        from .moments import variance
+
+        return variance(self, i, form)
+
+    def correlation(
+        self,
+        i: Any | None = None,
+        j: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the marginal correlation in the requested form."""
+        from .moments import correlation
+
+        return correlation(self, i, j, form)
+
+    def conditional_mean(
+        self,
+        i: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the conditional mean E[y | b] in the requested form."""
+        from .moments import conditional_mean
+
+        return conditional_mean(self, i, form)
