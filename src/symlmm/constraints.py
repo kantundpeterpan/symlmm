@@ -47,6 +47,8 @@ def is_positive_definite(matrix: sp.MatrixBase, positive: Iterable[sp.Expr] = ()
     """
     if not isinstance(matrix, sp.MatrixBase):
         return None
+    if matrix.rows != matrix.cols:
+        return None
     size = matrix.rows
     if size == 0:
         return True

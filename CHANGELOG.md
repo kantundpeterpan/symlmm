@@ -33,5 +33,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed errors from `symlmm.errors`, including `MissingFormError`.
 - Extension protocols for post-v0.1 work; no GLMM implementation.
 
-[Unreleased]: https://github.com/symlmm/symlmm/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/symlmm/symlmm/releases/tag/v0.1.0
+[Unreleased]: https://github.com/kantundpeterpan/symlmm/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kantundpeterpan/symlmm/releases/tag/v0.1.0
