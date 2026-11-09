@@ -255,6 +255,37 @@ class LMM(IndexedModel):
 
         return covariogram(self, i, j, form)
 
+    def blup_mean(
+        self,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the BLUP mean E[b | y] in the requested form."""
+        from .blup import blup_mean
+
+        return blup_mean(self, form)
+
+    def blup_covariance(
+        self,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the BLUP covariance Cov[b | y] in the requested form."""
+        from .blup import blup_covariance
+
+        return blup_covariance(self, form)
+
+    def blup_cross_covariance(
+        self,
+        i: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the BLUP cross-covariance Cov[y_i, b] in the requested form."""
+        from .blup import blup_cross_covariance
+
+        return blup_cross_covariance(self, i, form)
+
     def icc(
         self,
         *,

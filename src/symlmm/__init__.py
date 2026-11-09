@@ -2,6 +2,7 @@
 
 from importlib.metadata import version
 
+from .blup import blup_covariance, blup_cross_covariance, blup_mean
 from .constraints import (
     Constraint,
     Relation,
@@ -11,11 +12,18 @@ from .constraints import (
 from .covariances import (
     AR1,
     IID,
+    BlockDiag,
+    CompoundSymmetry,
     CovarianceSpec,
     Diagonal,
+    Exponential,
+    Gaussian,
+    Heteroscedastic,
+    Matern,
     RandomCovariance,
     ResidualCovariance,
     Scalar,
+    Toeplitz,
     Unstructured,
 )
 from .errors import (
@@ -43,15 +51,16 @@ from .forms import (
 )
 from .model import LMM, IndexedModel
 from .simplify import canonicalize
-from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
+from .specs import Crossed, Fixed, Group, Nested, RandomIntercept, RandomSlope
 from .symbols import observation_index, parameter
+from .variogram import covariogram, variogram
 
 __version__ = version("symlmm")
 
 __all__ = [
     "AR1",
-    "IID",
-    "LMM",
+    "BlockDiag",
+    "CompoundSymmetry",
     "Constraint",
     "CovarianceConstructionError",
     "CovarianceSpec",
@@ -59,13 +68,19 @@ __all__ = [
     "Diagonal",
     "DualForm",
     "EntryMap",
+    "Exponential",
     "Fixed",
     "Form",
     "FormArityError",
     "FormError",
+    "Gaussian",
     "Group",
+    "Heteroscedastic",
+    "IID",
     "IndexedModel",
     "InvalidFormError",
+    "LMM",
+    "Matern",
     "MissingFormError",
     "ModelError",
     "Nested",
@@ -75,20 +90,27 @@ __all__ = [
     "ParameterConstraintError",
     "RandomCovariance",
     "RandomIntercept",
+    "RandomSlope",
     "Relation",
     "ResidualCovariance",
     "Scalar",
     "SymlmmError",
+    "Toeplitz",
     "UnresolvedSymbols",
     "Unstructured",
     "UnsupportedForm",
     "__version__",
+    "blup_covariance",
+    "blup_cross_covariance",
+    "blup_mean",
     "canonicalize",
     "check_constraints",
+    "covariogram",
     "is_positive_definite",
     "matrix_to_sum",
     "observation_index",
     "parameter",
     "require_form",
     "sum_to_matrix",
+    "variogram",
 ]
