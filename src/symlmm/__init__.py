@@ -32,7 +32,14 @@ from .errors import (
     UnresolvedSymbols,
     UnsupportedForm,
 )
-from .forms import DualForm, EntryMap, Form, require_form
+from .forms import (
+    DualForm,
+    EntryMap,
+    Form,
+    matrix_to_sum,
+    require_form,
+    sum_to_matrix,
+)
 from .model import LMM, IndexedModel
 from .specs import Crossed, Fixed, Group, Nested, RandomIntercept
 from .symbols import observation_index, parameter
@@ -75,7 +82,9 @@ __all__ = [
     "__version__",
     "check_constraints",
     "is_positive_definite",
+    "matrix_to_sum",
     "observation_index",
     "parameter",
     "require_form",
+    "sum_to_matrix",
 ]

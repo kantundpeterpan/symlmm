@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
@@ -51,3 +52,13 @@ class DualForm:
 
     sum: sp.Expr | EntryMap | None
     matrix: sp.MatrixExpr | sp.Expr | None
+
+
+def matrix_to_sum(model: Any) -> EntryMap:
+    """Return a lazy entry map over the model covariance in sum form."""
+    return EntryMap(model.covariance_entry)
+
+
+def sum_to_matrix(model: Any) -> Any:
+    """Return the model covariance in abstract matrix form."""
+    return model.matrix_covariance()
