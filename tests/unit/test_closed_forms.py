@@ -61,7 +61,7 @@ def test_canonicalize_expands_and_simplifies():
     assert canonicalize((x + 1) ** 2 - x**2) == 2 * x + 1
 
 
-def test_ar1_retains_time_name_but_uses_canonical_time_symbol():
+def test_ar1_uses_named_time_coordinate_as_canonical_symbol():
     b0 = sp.Symbol("b0")
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", positive=True)
@@ -72,8 +72,8 @@ def test_ar1_retains_time_name_but_uses_canonical_time_symbol():
     assert ar1.time == "time"
     entry = ar1.entry(i, j, model)
     names = {indexed.base.name for indexed in entry.atoms(sp.Indexed)}
-    assert "t" in names
-    assert "time" not in names
+    assert "time" in names
+    assert "t" not in names
 
 
 def test_residual_group_registration_deduplicates():

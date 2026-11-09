@@ -147,3 +147,53 @@ def test_sum_whole_vector_queries_raise():
         model.conditional_mean(form="sum")
     with pytest.raises(FormArityError):
         model.correlation(form="sum")
+
+
+def test_conditional_covariance_entry_sum():
+    model = _model()
+    i, j = model.indices()
+    assert model.conditional_covariance(i, j, form="sum") == model.residual.entry(i, j, model)
+
+
+def test_conditional_covariance_whole_matrix():
+    model = _model()
+    i, j = model.indices()
+
+    whole = model.conditional_covariance(form="matrix")
+    assert whole.shape == (model.n, model.n)
+    assert whole == sp.MatrixSymbol("R", model.n, model.n)
+
+    dual = model.conditional_covariance(form="both")
+    assert isinstance(dual, DualForm)
+    assert isinstance(dual.sum, EntryMap)
+    assert model.conditional_covariance(i, j, form="matrix") is not None
+
+
+def test_conditional_covariance_arity_and_sum_form_errors():
+    model = _model()
+    i, _ = model.indices()
+    with pytest.raises(FormArityError):
+        model.conditional_covariance(i, form="sum")
+    with pytest.raises(FormArityError):
+        model.conditional_covariance(form="sum")
+
+
+def test_conditional_variance_entry_sum():
+    model = _model()
+    i, _ = model.indices()
+    assert model.conditional_variance(i, form="sum") == model.residual.entry(i, i, model)
+
+
+def test_conditional_variance_whole_and_form_errors():
+    model = _model()
+    i, _ = model.indices()
+
+    whole = model.conditional_variance(form="matrix")
+    assert whole.shape == (model.n, 1)
+    assert model.conditional_variance(i, form="matrix") is not None
+    dual = model.conditional_variance(form="both")
+    assert isinstance(dual, DualForm)
+    assert isinstance(dual.sum, EntryMap)
+
+    with pytest.raises(FormArityError):
+        model.conditional_variance(form="sum")

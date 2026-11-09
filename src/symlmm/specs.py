@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -67,6 +68,9 @@ class Fixed:
 
     intercept: sp.Expr | None = None
     slopes: Mapping[str, sp.Expr] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "slopes", types.MappingProxyType(dict(self.slopes or {})))
 
     def names(self) -> tuple[str, ...]:
         """Return fixed-effect names in design order."""

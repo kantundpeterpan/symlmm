@@ -12,9 +12,17 @@ def test_observation_accessors():
     i, _ = model.indices()
 
     assert model.group(i, "subject") == sp.IndexedBase("subject", shape=(n,))[i]
-    assert model.time(i) == sp.IndexedBase("t", shape=(n,))[i]
+    assert model.time(i) == sp.IndexedBase("time", shape=(n,))[i]
     assert model.covariate(i, "time") == sp.IndexedBase("time", shape=(n,))[i]
-    assert model.design(i) == sp.Matrix([1, sp.IndexedBase("t", shape=(n,))[i]])
+    assert model.design(i) == sp.Matrix([1, sp.IndexedBase("time", shape=(n,))[i]])
+
+
+def test_time_symbols_are_canonical():
+    n = sp.Symbol("n", positive=True, integer=True)
+    model = IndexedModel(n=n, groups=(Group("subject"),), time="time")
+    i, _ = model.indices()
+
+    assert model.time(i) == model.time(i, "time")
 
 
 def test_design_includes_time_symbol():
@@ -34,13 +42,12 @@ def test_unknown_grouping_factor_raises_model_error():
         model.group(i, "missing")
 
 
-def test_missing_time_coordinate_raises_model_error():
+def test_missing_time_coordinate_falls_back_to_t():
     n = sp.Symbol("n", positive=True, integer=True)
     model = IndexedModel(n=n, groups=(Group("subject"),))
     i, _ = model.indices()
 
-    with pytest.raises(ModelError):
-        model.time(i, "time")
+    assert model.time(i) == sp.IndexedBase("t", shape=(n,))[i]
 
 
 def test_nested_label_is_composite():

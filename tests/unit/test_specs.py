@@ -1,5 +1,6 @@
 """Tests for model specifications."""
 
+import pytest
 import sympy as sp
 
 from symlmm.model import IndexedModel
@@ -23,3 +24,22 @@ def test_fixed_mean_at_observation():
 
     expected = b0 + b1 * model.covariate(i, "time")
     assert sp.simplify(fixed.mean_at(model, i) - expected) == 0
+
+
+def test_fixed_slopes_are_immutable():
+    b1 = sp.Symbol("b1")
+    fixed = Fixed(slopes={"x": b1})
+
+    with pytest.raises(TypeError):
+        fixed.slopes["x"] = sp.Symbol("other")
+
+
+def test_fixed_default_is_empty():
+    n = sp.Symbol("n", positive=True, integer=True)
+    model = IndexedModel(n=n)
+    i, _ = model.indices()
+    fixed = Fixed()
+
+    assert fixed.names() == ()
+    assert fixed.coefficients() == ()
+    assert fixed.mean_at(model, i) == 0

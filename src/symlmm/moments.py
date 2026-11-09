@@ -159,3 +159,61 @@ def _conditional_mean_entry(model: Any, i: Any) -> Any:
         for a in range(term.cov.dim):
             value += z[a] * sp.IndexedBase(f"b_{term.group}")[a]
     return value
+
+
+def conditional_covariance(
+    model: Any,
+    i: Any | None = None,
+    j: Any | None = None,
+    form: str | Form | None = None,
+) -> Any:
+    """Return the conditional covariance Cov[y | b] = R."""
+    form = require_form(form)
+    if (i is None) != (j is None):
+        raise FormArityError("conditional_covariance requires both indices or neither")
+    R = sp.MatrixSymbol("R", model.n, model.n)
+    if i is None:
+        if form is Form.SUM:
+            raise FormArityError("conditional_covariance requires indices for form='sum'")
+        if form is Form.MATRIX:
+            return R
+        return DualForm(
+            sum=EntryMap(lambda a, b: model.residual.entry(a, b, model)),
+            matrix=R,
+        )
+    if form is Form.SUM:
+        return model.residual.entry(i, j, model)
+    if form is Form.MATRIX:
+        return R[i, j]
+    return DualForm(
+        sum=model.residual.entry(i, j, model),
+        matrix=R[i, j],
+    )
+
+
+def conditional_variance(
+    model: Any,
+    i: Any | None = None,
+    form: str | Form | None = None,
+) -> Any:
+    """Return the conditional variance vector or entry."""
+    form = require_form(form)
+    R = sp.MatrixSymbol("R", model.n, model.n)
+    if i is None:
+        if form is Form.SUM:
+            raise FormArityError("conditional_variance requires an index for form='sum'")
+        vector = sp.matrices.expressions.diagonal.DiagonalOf(R)
+        if form is Form.MATRIX:
+            return vector
+        return DualForm(
+            sum=EntryMap(lambda k: model.residual.entry(k, k, model)),
+            matrix=vector,
+        )
+    if form is Form.SUM:
+        return model.residual.entry(i, i, model)
+    if form is Form.MATRIX:
+        return R[i, i]
+    return DualForm(
+        sum=model.residual.entry(i, i, model),
+        matrix=R[i, i],
+    )

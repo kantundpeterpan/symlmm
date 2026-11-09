@@ -53,11 +53,12 @@ class IndexedModel:
         spec = self._group_spec(factor)
         return sp.IndexedBase(spec.label, shape=(self.n,))[i]
 
-    def time(self, i: Any, coordinate: str = "t") -> Any:
+    def time(self, i: Any, coordinate: str | None = None) -> Any:
         """Return the time or coordinate value for observation `i`."""
-        name = self.time_name if coordinate == "time" else coordinate
-        if name is None:
-            raise ModelError("model has no time coordinate")
+        if coordinate is None:
+            name = self.time_name if self.time_name is not None else "t"
+        else:
+            name = coordinate
         return sp.IndexedBase(name, shape=(self.n,))[i]
 
     def covariate(self, i: Any, name: str) -> Any:
@@ -201,6 +202,29 @@ class LMM(IndexedModel):
         from .moments import conditional_mean
 
         return conditional_mean(self, i, form)
+
+    def conditional_covariance(
+        self,
+        i: Any | None = None,
+        j: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the conditional covariance Cov[y | b] in the requested form."""
+        from .moments import conditional_covariance
+
+        return conditional_covariance(self, i, j, form)
+
+    def conditional_variance(
+        self,
+        i: Any | None = None,
+        *,
+        form: str | Form | None = None,
+    ) -> Any:
+        """Return the conditional variance vector or entry in the requested form."""
+        from .moments import conditional_variance
+
+        return conditional_variance(self, i, form)
 
     def icc(
         self,
