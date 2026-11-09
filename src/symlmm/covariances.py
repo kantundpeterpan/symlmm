@@ -91,6 +91,13 @@ class AR1(ResidualCovariance):
     """AR(1) residual covariance within groups."""
 
     def __init__(self, *, group: str, time: str, var: sp.Expr, rho: sp.Expr) -> None:
+        """Build an AR(1) residual covariance.
+
+        ``time`` is the model's time-column name and is retained as metadata.
+        The covariance uses the canonical ``model.time(i)`` symbol so AR(1),
+        ``design``, and ``icc`` share one time variable. A future model that
+        needs a named time column must thread it through ``IndexedModel``.
+        """
         self.group = group
         self.time = time
         self.var = var

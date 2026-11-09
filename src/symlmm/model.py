@@ -90,6 +90,7 @@ class LMM(IndexedModel):
         groups = tuple(Group(term.group) for term in self.random)
         if hasattr(residual, "group"):
             groups = groups + (Group(residual.group),)
+        groups = tuple(dict.fromkeys(groups))
         time = getattr(residual, "time", None) or next(
             (getattr(term, "time", None) for term in self.random if getattr(term, "time", None)),
             None,

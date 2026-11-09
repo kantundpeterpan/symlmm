@@ -1,11 +1,13 @@
 """Closed-form covariance entries and ICC tests."""
 
+import pytest
 import sympy as sp
 
 from symlmm.covariances import AR1, IID, Scalar
+from symlmm.errors import MissingFormError
 from symlmm.model import LMM
 from symlmm.simplify import canonicalize
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, Group, RandomIntercept
 
 
 def test_random_intercept_closed_form():
@@ -57,3 +59,60 @@ def test_icc_for_random_intercept():
 def test_canonicalize_expands_and_simplifies():
     x = sp.Symbol("x")
     assert canonicalize((x + 1) ** 2 - x**2) == 2 * x + 1
+
+
+def test_ar1_retains_time_name_but_uses_canonical_time_symbol():
+    b0 = sp.Symbol("b0")
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+    ar1 = AR1(group="subject", time="time", var=sigma2, rho=rho)
+    model = LMM(fixed=Fixed(intercept=b0), random=[], residual=ar1)
+    i, j = model.indices()
+
+    assert ar1.time == "time"
+    entry = ar1.entry(i, j, model)
+    names = {indexed.base.name for indexed in entry.atoms(sp.Indexed)}
+    assert "t" in names
+    assert "time" not in names
+
+
+def test_residual_group_registration_deduplicates():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", time="time", var=sigma2, rho=rho),
+    )
+
+    assert model.groups == (Group("subject"),)
+
+
+def test_icc_requires_form():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+    )
+
+    with pytest.raises(MissingFormError):
+        model.icc()
+
+
+def test_icc_matrix_and_both_forms_return():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+    )
+
+    assert model.icc(form="matrix") is not None
+    assert model.icc(form="both") is not None
