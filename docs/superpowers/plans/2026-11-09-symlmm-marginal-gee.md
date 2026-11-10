@@ -226,7 +226,7 @@ from symlmm.covariances import IID, Scalar
 from symlmm.marginal import MarginalLMM
 from symlmm.marginal.induce import InducedCovariance
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects
 
 
 def _conditional():
@@ -235,7 +235,7 @@ def _conditional():
     sigma2 = sp.Symbol("sigma2", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         n=4,
     )
@@ -394,7 +394,7 @@ from typing import Callable
 import sympy as sp
 
 from ..covariances import CompoundSymmetry, IID
-from ..specs import Fixed, RandomIntercept
+from ..specs import Fixed, RandomEffects
 from ..covariances import Scalar
 
 
@@ -439,8 +439,9 @@ def decompose(model):
             return LMM(
                 fixed=Fixed(intercept=model.fixed.intercept, slopes=model.fixed.slopes),
                 random=[
-                    RandomIntercept(
+                    RandomEffects(
                         group=model.covariance_spec.group,
+                        intercept=True,
                         cov=Scalar(params["tau2"]),
                     )
                 ],
