@@ -124,6 +124,22 @@ def test_spatial_nugget_constraint():
     assert any(constraint.message == "omega2 >= 0" for constraint in cov.constraints())
 
 
+def test_dense_grouped_spatial_cross_group_entry_is_zero():
+    b0 = sp.Symbol("b0")
+    sigma2, phi = sp.symbols("sigma2 phi", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=Exponential(var=sigma2, range=phi, group="subject"),
+        coordinate="x",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], x=[0, 0, 0, 0], y=[0, 0, 0, 0])
+
+    assert dense.covariance(0, 2, form="sum") == 0
+    assert sp.simplify(dense.covariance(0, 1, form="sum") - sigma2) == 0
+
+
 def test_spatial_residual_without_group_registers_no_factor():
     b0 = sp.Symbol("b0")
     sigma2, phi = sp.symbols("sigma2 phi", positive=True)

@@ -404,6 +404,67 @@ def test_dense_explicit_occasion_codes_support_mixed_types():
     assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
 
 
+def test_dense_derived_occasion_codes_support_mixed_coordinate_types():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], visit_time=[1, "a", 1, "a"])
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+
+
+def test_dense_derived_occasion_codes_fall_back_for_unsympifiable_values():
+    class Label:
+        def __init__(self, value):
+            self.value = value
+
+        def __str__(self):
+            return self.value
+
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        n=2,
+    )
+    dense = model.dense(subject=[0, 0], visit_time=[Label("b"), Label("a")])
+    assert [dense.occasion(k, "subject") for k in range(2)] == [1, 0]
+
+
+def test_dense_per_factor_occasion_mapping():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(group="subject", intercept=True, cov=Scalar(tau2)),
+            RandomEffects(group="item", intercept=True, cov=Scalar(tau2)),
+        ],
+        residual=IID(var=sigma2),
+        occasion={"subject": "visit", "item": "occasion"},
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        item=[0, 1, 0, 1],
+        visit=[0, 1, 0, 1],
+        occasion=[0, 0, 0, 0],
+    )
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert [dense.occasion(k, "item") for k in range(4)] == [0, 0, 0, 0]
+
+
 def test_dense_random_slope_within_false_uses_global_coordinates():
     tau2 = sp.Symbol("tau2", positive=True)
     sigma2 = sp.Symbol("sigma2", positive=True)

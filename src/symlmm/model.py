@@ -27,6 +27,14 @@ GroupSpec = Group | Nested | Crossed
 __all__ = ["IID", "LMM", "IndexedModel"]
 
 
+def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
+    """Return a total ordering key for a derived-occasion coordinate value."""
+    try:
+        return (0, sp.default_sort_key(sp.sympify(value)), position)
+    except sp.SympifyError, TypeError:
+        return (1, str(value), position)
+
+
 class IndexedModel:
     """Base class for models over a stacked observation vector."""
 
@@ -50,6 +58,7 @@ class IndexedModel:
         self._coordinate_cache: dict[tuple[str, str], dict[tuple[int, int], Any]] = {}
         self._group_cache: dict[str, list[int]] = {}
         self._occasion_cache: dict[str, list[int]] = {}
+        self._within_symbols: dict[str, sp.Symbol] = {}
         self._i = observation_index("i")
         self._j = observation_index("j")
 
@@ -142,8 +151,22 @@ class IndexedModel:
             return self.occasion_names.get(factor)
         return self.occasion_names
 
+    def _within_symbol(self, spec: GroupSpec) -> sp.Symbol:
+        """Return the cached common-level symbol for `spec`."""
+        key = spec.label
+        symbol = self._within_symbols.get(key)
+        if symbol is None:
+            symbol = sp.Symbol(f"g_{key.replace(':', '_')}", integer=True)
+            self._within_symbols[key] = symbol
+        return symbol
+
     def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
-        """Return integer occasion codes within each group for `spec`."""
+        """Return integer occasion codes within each group for `spec`.
+
+        Derived occasion codes are ordered symbolically when possible and fall
+        back to string ordering otherwise. Numeric ``1`` and ``1.0`` are
+        distinct coordinate values for nesting validation.
+        """
         cached = self._occasion_cache.get(spec.label)
         if cached is not None:
             return cached
@@ -166,7 +189,7 @@ class IndexedModel:
                 raw = list(range(self.n))
             for group_code in sorted(set(groups)):
                 positions = [k for k, value in enumerate(groups) if value == group_code]
-                ordered = sorted(positions, key=lambda k: (raw[k], k))
+                ordered = sorted(positions, key=lambda k: _occasion_sort_key(raw[k], k))
                 code = -1
                 previous: Any = object()
                 for position in ordered:
@@ -208,7 +231,9 @@ class IndexedModel:
     def design(self, i: Any) -> Any:
         """Return the fixed-effect design row `[coordinate, covariates...]`."""
         terms = [] if self.coordinate_name is None else [self.coordinate(i)]
-        terms.extend(self.covariate(i, name) for name in self.covariates)
+        terms.extend(
+            self.covariate(i, name) for name in self.covariates if name != self.coordinate_name
+        )
         return sp.Matrix(terms) if terms else sp.zeros(0, 1)
 
 
@@ -316,6 +341,7 @@ class LMM(IndexedModel):
         dense._coordinate_cache = {}
         dense._group_cache = {}
         dense._occasion_cache = {}
+        dense._within_symbols = {}
         dense.n = lengths.pop()
         return dense
 
@@ -435,7 +461,7 @@ class LMM(IndexedModel):
     def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
         """Resolve a factor's delta by placing both rows in one common level."""
         spec = self._group_spec(within)
-        common = sp.Symbol(f"g_{spec.label.replace(':', '_')}", integer=True)
+        common = self._within_symbol(spec)
         return expr.subs({self.group(i, within): common, self.group(j, within): common})
 
     def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:

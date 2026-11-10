@@ -68,6 +68,37 @@ def test_crossed_label_is_composite():
     assert label.base == sp.IndexedBase("g_subject_item", shape=(n,))
 
 
+def test_base_design_does_not_duplicate_coordinate_covariate():
+    n = sp.Symbol("n", positive=True, integer=True)
+    model = IndexedModel(n=n, coordinate="time", covariates=("time", "x"))
+    i, _ = model.indices()
+
+    design = model.design(i)
+    assert design.shape == (2, 1)
+    assert design[0] == model.coordinate(i)
+    assert design[1] == model.covariate(i, "x")
+
+
+def test_within_resolution_reuses_cached_symbol():
+    from symlmm.covariances import IID, Scalar
+    from symlmm.model import LMM
+    from symlmm.specs import Fixed, RandomEffects
+
+    b0 = sp.Symbol("b0")
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(sigma2))],
+        residual=IID(var=sigma2),
+    )
+    i, j = model.indices()
+
+    first = model._apply_within(model.group(i, "subject"), i, j, "subject")
+    second = model._apply_within(model.group(i, "subject"), i, j, "subject")
+
+    assert first is second
+
+
 def test_lmm_design_uses_fixed_columns_without_intercept():
     b1 = sp.Symbol("b1")
     tau2 = sp.Symbol("tau2", positive=True)
