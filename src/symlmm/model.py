@@ -109,10 +109,6 @@ class IndexedModel:
             return self._nested_coordinate_value(i, selected, spec)
         return sp.IndexedBase(selected)[self.group(i, within), self.occasion(i, within)]
 
-    def time(self, i: Any, coordinate: str | None = None) -> Any:
-        """Return a coordinate; transitional alias for :meth:`coordinate`."""
-        return self.coordinate(i, coordinate)
-
     def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
         """Return integer codes for the composite label of `spec`."""
         cached = self._group_cache.get(spec.label)
@@ -237,12 +233,11 @@ class LMM(IndexedModel):
                 )
         for term in self.random:
             registered.setdefault(term.group, Group(term.group))
-        if hasattr(residual, "group"):
-            registered.setdefault(residual.group, Group(residual.group))
+        residual_group = getattr(residual, "group", None)
+        if residual_group is not None:
+            registered.setdefault(residual_group, Group(residual_group))
         declared: list[str] = []
         residual_coordinate = getattr(residual, "coordinate", None)
-        if residual_coordinate is None:
-            residual_coordinate = getattr(residual, "time", None)
         if residual_coordinate is not None:
             declared.append(residual_coordinate)
         for term in self.random:

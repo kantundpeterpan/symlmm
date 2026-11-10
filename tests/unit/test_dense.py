@@ -94,13 +94,29 @@ def test_dense_ar1_matches_observation_lags():
     model = LMM(
         fixed=Fixed(intercept=sp.Symbol("b0")),
         random=[],
-        residual=AR1(group="subject", time="time", var=sigma2, rho=rho),
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
         n=3,
     )
-    dense = model.dense(subject=[0, 0, 0], time=[0, 1, 2])
+    dense = model.dense(subject=[0, 0, 0], visit_time=[0, 1, 2])
     R = dense.matrix_r()
     assert R[0, 1] == sigma2 * rho
     assert R[0, 2] == sigma2 * rho**2
+
+
+def test_dense_ar1_same_subject_adjacent_and_cross_subject():
+    b0 = sp.Symbol("b0")
+    sigma2, rho = sp.symbols("sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], visit_time=[0, 1, 0, 1])
+    assert sp.simplify(dense.covariance(0, 1, form="sum")) == sigma2 * rho
+    assert dense.covariance(1, 2, form="sum") == 0
 
 
 def test_dense_requires_consistent_column_lengths():

@@ -28,6 +28,12 @@ def test_within_coordinate_is_two_level():
     )
 
 
+def test_public_time_alias_is_removed():
+    n = sp.Symbol("n", positive=True, integer=True)
+    model = IndexedModel(n=n, groups=(Group("subject"),), coordinate="visit_time")
+    assert not hasattr(model, "time")
+
+
 def test_missing_canonical_coordinate_raises():
     n = sp.Symbol("n", positive=True, integer=True)
     model = IndexedModel(n=n, groups=(Group("subject"),))
@@ -113,7 +119,7 @@ def test_conflicting_term_coordinates_raise():
         LMM(
             fixed=Fixed(intercept=b1),
             random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
-            residual=AR1(group="subject", time="visit_time", var=sigma2, rho=rho),
+            residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         )
 
 
@@ -129,7 +135,7 @@ def test_single_declared_coordinate_is_inferred():
     model = LMM(
         fixed=Fixed(intercept=b1),
         random=[RandomSlope(group="subject", coordinate="visit_time", cov=Diagonal([tau2, tau2]))],
-        residual=AR1(group="subject", time="visit_time", var=sigma2, rho=rho),
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
     )
     assert model.coordinate_name == "visit_time"
 
@@ -148,6 +154,6 @@ def test_explicit_coordinate_validates_terms():
         LMM(
             fixed=Fixed(intercept=b1),
             random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
-            residual=AR1(group="subject", time="visit_time", var=sigma2, rho=rho),
+            residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
             coordinate="visit_time",
         )

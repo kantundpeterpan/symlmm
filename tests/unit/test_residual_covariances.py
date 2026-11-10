@@ -67,14 +67,14 @@ def test_heteroscedastic_symbolic_entry():
 
 
 class _NumericModel:
-    """Minimal model stub exposing numeric group and time accessors."""
+    """Minimal model stub exposing numeric group and coordinate accessors."""
 
     def group(self, i, factor):
         """Return a constant group label."""
         return "subject"
 
-    def time(self, i, coordinate):
-        """Return the observation position as its time value."""
+    def coordinate(self, i, name, within=None):
+        """Return the observation position as its coordinate value."""
         return i
 
 
@@ -83,7 +83,7 @@ def test_toeplitz_entry():
     rho1, rho2 = sp.symbols("rho1 rho2", real=True)
     cov = Toeplitz(
         group="subject",
-        time="time",
+        coordinate="time",
         variances=[sigma2],
         correlations=[rho1, rho2],
     )
@@ -92,6 +92,32 @@ def test_toeplitz_entry():
     assert cov.entry(0, 1, model) == sigma2 * rho1
     assert cov.entry(0, 2, model) == sigma2 * rho2
     assert cov.entry(0, 3, model) == 0
+
+
+def test_toeplitz_nugget_at_zero_lag_only():
+    sigma2, rho1, omega2 = sp.symbols("sigma2 rho1 omega2", positive=True)
+    cov = Toeplitz(
+        group="subject",
+        coordinate="time",
+        variances=[sigma2],
+        correlations=[rho1],
+        nugget=omega2,
+    )
+    model = _NumericModel()
+    assert cov.entry(0, 0, model) == sigma2 + omega2
+    assert cov.entry(0, 1, model) == sigma2 * rho1
+
+
+def test_compound_symmetry_nugget_at_zero_lag_only():
+    sigma2, rho, omega2 = sp.symbols("sigma2 rho omega2", positive=True)
+    cov = CompoundSymmetry(group="subject", var=sigma2, rho=rho, nugget=omega2)
+    model = _model()
+    i, j = model.indices()
+    assert cov.entry(i, i, model) == sigma2 + omega2
+    same_subject = cov.entry(i, j, model).subs({i: 0, j: 1})
+    subject_0 = model.group(0, "subject")
+    subject_1 = model.group(1, "subject")
+    assert sp.simplify(same_subject.subs({subject_0: 1, subject_1: 1})) == sigma2 * rho
 
 
 def test_compound_symmetry_constraints():
@@ -133,7 +159,7 @@ def test_toeplitz_rejects_multiple_variances():
     with pytest.raises(CovarianceConstructionError, match="exactly one variance"):
         Toeplitz(
             group="subject",
-            time="time",
+            coordinate="time",
             variances=[sigma_a, sigma_b],
             correlations=[rho],
         )
@@ -142,7 +168,7 @@ def test_toeplitz_rejects_multiple_variances():
 def test_toeplitz_constraints():
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", real=True)
-    cov = Toeplitz(group="subject", time="time", variances=[sigma2], correlations=[rho])
+    cov = Toeplitz(group="subject", coordinate="time", variances=[sigma2], correlations=[rho])
     constraint = cov.constraints()[0]
     assert constraint.message == "sigma2 > 0"
     assert constraint.holds({sigma2: 1}) is True

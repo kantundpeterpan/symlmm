@@ -4,7 +4,8 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import Exponential, Gaussian, Matern
-from symlmm.model import IndexedModel
+from symlmm.model import LMM, IndexedModel
+from symlmm.specs import Fixed, Group
 
 
 def test_exponential_entry():
@@ -98,8 +99,39 @@ def test_entry_uses_euclidean_distance(cls, distance):
     kwargs = {"nu": sp.Rational(1, 2)} if cls is Matern else {}
     cov = cls(var=sigma2, range=phi, **kwargs)
     model = IndexedModel(n=2)
-    x0, x1 = model.covariate(0, "x"), model.covariate(1, "x")
-    y0, y1 = model.covariate(0, "y"), model.covariate(1, "y")
+    x0, x1 = model.coordinate(0, "x"), model.coordinate(1, "x")
+    y0, y1 = model.coordinate(0, "y"), model.coordinate(1, "y")
     h = sp.sqrt((x0 - x1) ** 2 + (y0 - y1) ** 2)
     expected = sigma2 * distance(h, phi)
     assert sp.simplify(cov.entry(0, 1, model) - expected) == 0
+
+
+def test_spatial_group_gate_and_nugget():
+    sigma2, phi, omega2 = sp.symbols("sigma2 phi omega2", positive=True)
+    model = IndexedModel(n=2, groups=(Group("subject"),), coordinate="x")
+    i, j = model.indices()
+    cov = Exponential(var=sigma2, range=phi, group="subject", nugget=omega2)
+    entry = cov.entry(i, j, model)
+    assert sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject")) in entry.atoms(
+        sp.KroneckerDelta
+    )
+    assert sp.simplify(entry.subs({i: 0, j: 0})) == sigma2 + omega2
+
+
+def test_spatial_nugget_constraint():
+    sigma2, phi, omega2 = sp.symbols("sigma2 phi omega2", positive=True)
+    cov = Gaussian(var=sigma2, range=phi, nugget=omega2)
+    assert any(constraint.message == "omega2 >= 0" for constraint in cov.constraints())
+
+
+def test_spatial_residual_without_group_registers_no_factor():
+    b0 = sp.Symbol("b0")
+    sigma2, phi = sp.symbols("sigma2 phi", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=Exponential(var=sigma2, range=phi),
+        coordinate="x",
+        n=2,
+    )
+    assert model.groups == ()

@@ -11,10 +11,22 @@ import sympy as sp  # type: ignore[import-untyped]
 from .constraints import Constraint, Relation, is_positive_definite
 from .errors import CovarianceConstructionError, ModelError
 
+_ZERO = sp.Integer(0)
+
 
 def _positive(value: sp.Expr) -> Constraint:
     """Return a positivity constraint naming the actual expression."""
     return Constraint(value, Relation.GT, f"{value} > 0")
+
+
+def _nonnegative(value: sp.Expr) -> Constraint:
+    """Return a non-negativity constraint naming the actual expression."""
+    return Constraint(value, Relation.GE, f"{value} >= 0")
+
+
+def _nugget_entry(nugget: sp.Expr, i: Any, j: Any) -> sp.Expr:
+    """Return the zero-lag measurement-error contribution."""
+    return sp.Integer(0) if nugget == 0 else nugget * sp.KroneckerDelta(i, j)
 
 
 class CovarianceSpec(ABC):
@@ -155,7 +167,15 @@ class IID(ResidualCovariance):
 class CompoundSymmetry(ResidualCovariance):
     """Compound-symmetry residual covariance within groups."""
 
-    def __init__(self, *, group: str, var: sp.Expr, rho: sp.Expr, m_max: int = 2) -> None:
+    def __init__(
+        self,
+        *,
+        group: str,
+        var: sp.Expr,
+        rho: sp.Expr,
+        m_max: int = 2,
+        nugget: sp.Expr = _ZERO,
+    ) -> None:
         """Build a compound-symmetry residual covariance."""
         if m_max < 2:
             raise CovarianceConstructionError("m_max must be at least 2")
@@ -163,18 +183,19 @@ class CompoundSymmetry(ResidualCovariance):
         self.var = var
         self.rho = rho
         self.m_max = m_max
+        self.nugget = nugget
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
         return sp.Piecewise(
-            (self.var, sp.Eq(i, j)),
+            (self.var + self.nugget, sp.Eq(i, j)),
             (self.var * self.rho * same_group, True),
         )
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (
+        values = [
             Constraint(
                 (self.m_max - 1) * self.rho + 1,
                 Relation.GT,
@@ -182,7 +203,10 @@ class CompoundSymmetry(ResidualCovariance):
             ),
             Constraint(1 - self.rho, Relation.GT, "rho < 1"),
             _positive(self.var),
-        )
+        ]
+        if self.nugget != 0:
+            values.append(_nonnegative(self.nugget))
+        return tuple(values)
 
 
 class Toeplitz(ResidualCovariance):
@@ -192,23 +216,27 @@ class Toeplitz(ResidualCovariance):
         self,
         *,
         group: str,
-        time: str,
+        coordinate: str,
         variances: Sequence[sp.Expr],
         correlations: Sequence[sp.Expr],
+        nugget: sp.Expr = _ZERO,
     ) -> None:
         """Build a Toeplitz residual covariance from variance and lag correlations."""
         self.group = group
-        self.time = time
+        self.coordinate = coordinate
         self.variances = tuple(variances)
         self.correlations = tuple(correlations)
+        self.nugget = nugget
         if len(self.variances) != 1:
             raise CovarianceConstructionError("Toeplitz v0.1 requires exactly one variance")
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        lag = sp.Abs(model.time(i, self.time) - model.time(j, self.time))
-        return self._lag_value(lag) * same_group
+        ti = model.coordinate(i, self.coordinate, within=self.group)
+        tj = model.coordinate(j, self.coordinate, within=self.group)
+        lag = sp.Abs(ti - tj)
+        return self._lag_value(lag) * same_group + _nugget_entry(self.nugget, i, j)
 
     def _lag_value(self, lag: sp.Expr) -> sp.Expr:
         """Return the covariance value for a time lag."""
@@ -229,7 +257,10 @@ class Toeplitz(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (_positive(self.variances[0]),)
+        values = [_positive(self.variances[0])]
+        if self.nugget != 0:
+            values.append(_nonnegative(self.nugget))
+        return tuple(values)
 
 
 def _concrete_index(value: Any) -> int | None:
@@ -268,33 +299,48 @@ class Heteroscedastic(ResidualCovariance):
 class AR1(ResidualCovariance):
     """AR(1) residual covariance within groups."""
 
-    def __init__(self, *, group: str, time: str, var: sp.Expr, rho: sp.Expr) -> None:
+    def __init__(
+        self,
+        *,
+        group: str,
+        coordinate: str,
+        var: sp.Expr,
+        rho: sp.Expr,
+        nugget: sp.Expr = _ZERO,
+    ) -> None:
         """Build an AR(1) residual covariance.
 
-        The covariance is ``var * rho**Abs(t_i - t_j)``. This is the discrete-time
-        AR(1) form when ``time`` is numeric and unit-spaced; for irregular or
-        non-unit spacing it is the continuous-time exponential covariance with
-        ``rho`` per unit time. ``LMM`` rejects residual/random time declarations
-        that conflict with the canonical time coordinate.
+        The covariance is ``var * rho**Abs(t_i - t_j)`` within groups, where the
+        coordinate is resolved on the within-group occasion. This is the
+        discrete-time AR(1) form when ``coordinate`` is numeric and unit-spaced;
+        for irregular or non-unit spacing it is the continuous-time exponential
+        covariance with ``rho`` per unit time. ``LMM`` rejects residual/random
+        coordinate declarations that conflict with the canonical coordinate.
         """
         self.group = group
-        self.time = time
+        self.coordinate = coordinate
         self.var = var
         self.rho = rho
+        self.nugget = nugget
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        lag = sp.Abs(model.time(i, self.time) - model.time(j, self.time))
-        return self.var * self.rho**lag * same_group
+        ti = model.coordinate(i, self.coordinate, within=self.group)
+        tj = model.coordinate(j, self.coordinate, within=self.group)
+        lag = sp.Abs(ti - tj)
+        return self.var * self.rho**lag * same_group + _nugget_entry(self.nugget, i, j)
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (
+        values = [
             Constraint(self.rho + 1, Relation.GT, "-1 < rho"),
             Constraint(1 - self.rho, Relation.GT, "rho < 1"),
             _positive(self.var),
-        )
+        ]
+        if self.nugget != 0:
+            values.append(_nonnegative(self.nugget))
+        return tuple(values)
 
 
 class Diagonal(CovarianceSpec):
@@ -367,66 +413,92 @@ class Unstructured(CovarianceSpec):
         )
 
 
-def _euclidean_distance(i: int, j: int, model: Any) -> sp.Expr:
+def _euclidean_distance(
+    i: int,
+    j: int,
+    model: Any,
+    coords: Sequence[str],
+    group: str | None,
+) -> sp.Expr:
     """Return the Euclidean distance between observations `i` and `j`."""
-    dx = model.covariate(i, "x") - model.covariate(j, "x")
-    dy = model.covariate(i, "y") - model.covariate(j, "y")
-    return sp.sqrt(dx**2 + dy**2)
+    total = sp.Integer(0)
+    for name in coords:
+        delta = model.coordinate(i, name, within=group) - model.coordinate(j, name, within=group)
+        total += delta**2
+    return sp.sqrt(total)
 
 
-class Exponential(ResidualCovariance):
-    """Exponential spatial covariance."""
+class _SpatialCovariance(ResidualCovariance):
+    """Shared spatial covariance behavior over named coordinates."""
 
-    def __init__(self, *, var: sp.Expr, range: sp.Expr) -> None:
+    def __init__(
+        self,
+        *,
+        var: sp.Expr,
+        range: sp.Expr,
+        group: str | None = None,
+        coords: Sequence[str] = ("x", "y"),
+        nugget: sp.Expr = _ZERO,
+    ) -> None:
         self.var = var
         self.range = range
+        self.group = group
+        self.coords = tuple(coords)
+        self.nugget = nugget
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        return self.entry_from_distance(_euclidean_distance(i, j, model))
+        distance = _euclidean_distance(i, j, model, self.coords, self.group)
+        value = self.entry_from_distance(distance)
+        if self.group is not None:
+            value *= sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+        return value + _nugget_entry(self.nugget, i, j)
+
+    @abstractmethod
+    def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
+        """Return the covariance entry for a distance."""
+
+    def constraints(self) -> tuple[Constraint, ...]:
+        """Return parameter constraints."""
+        values = [_positive(self.var), _positive(self.range)]
+        if self.nugget != 0:
+            values.append(_nonnegative(self.nugget))
+        return tuple(values)
+
+
+class Exponential(_SpatialCovariance):
+    """Exponential spatial covariance."""
 
     def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
         """Return the covariance entry for a distance."""
         return self.var * sp.exp(-distance / self.range)
 
-    def constraints(self) -> tuple[Constraint, ...]:
-        """Return parameter constraints."""
-        return (_positive(self.var), _positive(self.range))
 
-
-class Gaussian(ResidualCovariance):
+class Gaussian(_SpatialCovariance):
     """Gaussian spatial covariance."""
-
-    def __init__(self, *, var: sp.Expr, range: sp.Expr) -> None:
-        self.var = var
-        self.range = range
-
-    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
-        """Return the (i, j) observation entry."""
-        return self.entry_from_distance(_euclidean_distance(i, j, model))
 
     def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
         """Return the covariance entry for a distance."""
         return self.var * sp.exp(-(distance**2) / (2 * self.range**2))
 
-    def constraints(self) -> tuple[Constraint, ...]:
-        """Return parameter constraints."""
-        return (_positive(self.var), _positive(self.range))
 
-
-class Matern(ResidualCovariance):
+class Matern(_SpatialCovariance):
     """Matern spatial covariance for nu in {1/2, 3/2, 5/2}."""
 
-    def __init__(self, *, var: sp.Expr, range: sp.Expr, nu: sp.Expr) -> None:
+    def __init__(
+        self,
+        *,
+        var: sp.Expr,
+        range: sp.Expr,
+        nu: sp.Expr,
+        group: str | None = None,
+        coords: Sequence[str] = ("x", "y"),
+        nugget: sp.Expr = _ZERO,
+    ) -> None:
         if nu not in (sp.Rational(1, 2), sp.Rational(3, 2), sp.Rational(5, 2)):
             raise CovarianceConstructionError(f"unsupported Matern nu: {nu}")
-        self.var = var
-        self.range = range
+        super().__init__(var=var, range=range, group=group, coords=coords, nugget=nugget)
         self.nu = nu
-
-    def entry(self, i: int, j: int, model: Any) -> sp.Expr:
-        """Return the (i, j) observation entry."""
-        return self.entry_from_distance(_euclidean_distance(i, j, model))
 
     def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
         """Return the covariance entry for a distance."""
@@ -442,7 +514,3 @@ class Matern(ResidualCovariance):
                 * sp.exp(-sp.sqrt(5) * scaled)
             )
         raise CovarianceConstructionError(f"unsupported Matern nu: {self.nu}")
-
-    def constraints(self) -> tuple[Constraint, ...]:
-        """Return parameter constraints."""
-        return (_positive(self.var), _positive(self.range))
