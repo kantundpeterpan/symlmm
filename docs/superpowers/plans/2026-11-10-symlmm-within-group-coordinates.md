@@ -348,6 +348,7 @@ git commit -m "feat: separate row, group, occasion, and coordinate indices"
 
 **Files:**
 - Modify: `src/symlmm/covariances.py`
+- Modify: `src/symlmm/model.py` (remove the transitional `time` alias and residual fallback)
 - Test: `tests/unit/test_residual_covariances.py`
 - Test: `tests/unit/test_spatial_covariances.py`
 - Test: `tests/unit/test_closed_forms.py`
@@ -356,7 +357,7 @@ git commit -m "feat: separate row, group, occasion, and coordinate indices"
 
 **Interfaces:**
 - Consumes: `model.coordinate(i, name, within=factor)`, `model.group(i, factor)`, `Constraint`, `Relation`.
-- Produces: `AR1(group, coordinate, var, rho, nugget=0)`, `Toeplitz(group, coordinate, variances, correlations, nugget=0)`, `CompoundSymmetry(group, var, rho, m_max=2, nugget=0)`, `Exponential/Gaussian/Matern(var, range, group=None, coords=("x","y"), nugget=0)`.
+- Produces: `AR1(group, coordinate, var, rho, nugget=0)`, `Toeplitz(group, coordinate, variances, correlations, nugget=0)`, `CompoundSymmetry(group, var, rho, m_max=2, nugget=0)`, `Exponential/Gaussian/Matern(var, range, group=None, coords=("x","y"), nugget=0)`, and no public `model.time` alias or residual `.time` fallback.
 
 - [ ] **Step 1: Write the failing residual tests**
 
@@ -560,12 +561,27 @@ def test_dense_ar1_same_subject_adjacent_and_cross_subject():
     assert dense.covariance(1, 2, form="sum") == 0
 ```
 
-- [ ] **Step 5: Run the task gate and commit**
+- [ ] **Step 5: Remove the transitional `time` alias**
+
+After all covariance structures use `coordinate`, delete `IndexedModel.time` from
+`src/symlmm/model.py`. In `LMM.__init__`, remove the `getattr(residual, "time", None)`
+fallback and read only `getattr(residual, "coordinate", None)`.
+
+Add to `tests/unit/test_indices.py`:
+
+```python
+def test_public_time_alias_is_removed():
+    n = sp.Symbol("n", positive=True, integer=True)
+    model = IndexedModel(n=n, groups=(Group("subject"),), coordinate="visit_time")
+    assert not hasattr(model, "time")
+```
+
+- [ ] **Step 6: Run the task gate and commit**
 
 Run: `uv run pytest -q && uv run ruff check && uv run ruff format --check && uv run mypy src/symlmm`
 
 ```bash
-git add src/symlmm/covariances.py tests/unit/test_residual_covariances.py tests/unit/test_spatial_covariances.py tests/unit/test_closed_forms.py tests/unit/test_random_slopes.py tests/unit/test_dense.py
+git add src/symlmm/covariances.py src/symlmm/model.py tests/unit/test_indices.py tests/unit/test_residual_covariances.py tests/unit/test_spatial_covariances.py tests/unit/test_closed_forms.py tests/unit/test_random_slopes.py tests/unit/test_dense.py
 git commit -m "feat: add within-group coordinates, spatial gates, and nuggets"
 ```
 
