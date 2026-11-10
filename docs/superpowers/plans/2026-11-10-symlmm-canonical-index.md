@@ -399,7 +399,7 @@ def test_group_mean_and_covariance_blocks():
     beta = sp.Matrix(model.fixed.coefficients())
     X = model.fixed_design(g)
     Z = model.random_design(g)
-    G = model.matrix_g()
+    G = model._primary_random_term().cov.dense()
 
     assert model.group_mean(g) == X * beta
     assert model.group_covariance(g) == Z * G * Z.T + model.residual_covariance(g)
@@ -444,9 +444,9 @@ def group_mean(self, group: Any) -> Any:
     return self.fixed_design(group) * sp.Matrix(self.fixed.coefficients())
 
 def group_covariance(self, group: Any) -> Any:
-    """Return Cov(Y_group)."""
+    """Return Cov(Y_group) for the primary grouping factor."""
     Z = self.random_design(group)
-    G = self.matrix_g()
+    G = self._primary_random_term().cov.dense()
     R = self.residual_covariance(group)
     return Z * G * Z.T + R
 
