@@ -181,8 +181,8 @@ def _conditional_mean_entry(model: Any, i: Any) -> Any:
     value = model.fixed.mean_at(model, i)
     for term_index, term in enumerate(model.random):
         z = term.z(model, i)
-        base = f"b_{term.group}_{term_index}".replace(":", "_")
-        level = model.group(i, term.group)
+        base = f"b_{term.group.name}_{term_index}".replace(":", "_")
+        level = model.group(i, term.group.name)
         for a in range(term.dim):
             value += z[a] * sp.IndexedBase(base)[level, a]
     return value

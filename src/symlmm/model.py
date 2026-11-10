@@ -1,10 +1,10 @@
 """Model base classes and index accessors.
 
-Index model A (temporary): ``i`` is only the observation-row cursor. Group
-levels ``g`` and within-group occasions ``k`` are distinct structural index
-spaces; coordinates live on ``G x K`` as ``X[g, k]``. The full two-level
-``(group, occasion)`` response index redesign is tracked in issue #1:
-https://github.com/kantundpeterpan/symlmm/issues/1
+Canonical notation uses ``i`` for the group and ``t`` for the occasion:
+``Y_i`` is the group response row in a balanced panel, ``Y[:, t]`` is the
+occasion column, and ``Y_{it}`` is the scalar response. The stacked
+observation-row cursor used internally by the matrix engine is an
+implementation detail, not public model notation.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any
 import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
-from .errors import FormArityError, ModelError
-from .specs import Crossed, Fixed, Group, Nested, RandomEffects
+from .errors import FormArityError, ModelError, NotDefined
+from .specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects
 from .symbols import observation_index
 
 if TYPE_CHECKING:
@@ -25,6 +25,38 @@ if TYPE_CHECKING:
 GroupSpec = Group | Nested | Crossed
 
 __all__ = ["IID", "LMM", "IndexedModel"]
+
+
+def _residual_group(residual: ResidualCovariance) -> GroupSpec | None:
+    """Return the residual covariance's grouping-factor definition, if any."""
+    value = getattr(residual, "group", None)
+    if value is None:
+        return None
+    if isinstance(value, (Group, Nested, Crossed)):
+        return value
+    if isinstance(value, str):
+        return Group(value)
+    return None
+
+
+def _residual_covariate(residual: ResidualCovariance) -> Covariate | None:
+    """Return the residual covariance's coordinate definition, if any."""
+    value = getattr(residual, "coordinate", None)
+    if value is None:
+        return None
+    if isinstance(value, Covariate):
+        return value
+    if isinstance(value, str):
+        return Covariate(value)
+    return None
+
+
+def _primary_definition(
+    definition: GroupSpec,
+    registered: Mapping[str, GroupSpec],
+) -> GroupSpec:
+    """Return the registered definition for `definition`, when present."""
+    return registered.get(definition.name, definition)
 
 
 def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
@@ -102,21 +134,22 @@ class IndexedModel:
     def coordinate(
         self,
         i: Any,
-        name: str | None = None,
+        name: str | Covariate | None = None,
         within: str | None = None,
     ) -> Any:
         """Return a row coordinate, or ``X[group(i), occasion(i)]`` when within."""
         selected = self.coordinate_name if name is None else name
         if selected is None:
             raise ModelError("no coordinate name; pass coordinate=... or coordinate(i, name)")
+        selected_name = selected.name if isinstance(selected, Covariate) else selected
         if within is None:
             if self._dense:
-                return self._observation_value(i, selected)
-            return sp.IndexedBase(selected, shape=(self.n,))[i]
+                return self._observation_value(i, selected_name)
+            return sp.IndexedBase(selected_name, shape=(self.n,))[i]
         spec = self._group_spec(within)
         if self._dense:
-            return self._nested_coordinate_value(i, selected, spec)
-        return sp.IndexedBase(selected)[self.group(i, within), self.occasion(i, within)]
+            return self._nested_coordinate_value(i, selected_name, spec)
+        return sp.IndexedBase(selected_name)[self.group(i, within), self.occasion(i, within)]
 
     def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
         """Return integer codes for the composite label of `spec`."""
@@ -222,11 +255,12 @@ class IndexedModel:
             self._coordinate_cache[key] = mapping
         return mapping[(self.group(i, spec.name), self.occasion(i, spec.name))]
 
-    def covariate(self, i: Any, name: str) -> Any:
+    def covariate(self, i: Any, name: str | Covariate) -> Any:
         """Return a covariate value for observation `i`."""
+        selected = name.name if isinstance(name, Covariate) else name
         if self._dense:
-            return self._observation_value(i, name)
-        return sp.IndexedBase(name, shape=(self.n,))[i]
+            return self._observation_value(i, selected)
+        return sp.IndexedBase(selected, shape=(self.n,))[i]
 
     def design(self, i: Any) -> Any:
         """Return the fixed-effect design row `[coordinate, covariates...]`."""
@@ -256,14 +290,16 @@ class LMM(IndexedModel):
         self.residual = residual
         seen_groups: set[str] = set()
         for term in self.random:
-            if term.group in seen_groups:
+            group_name = term.group.name
+            if group_name in seen_groups:
                 raise ModelError(
-                    f"multiple RandomEffects blocks for group {term.group!r}; "
+                    f"multiple RandomEffects blocks for group {group_name!r}; "
                     "combine intercepts and slopes into one block"
                 )
-            seen_groups.add(term.group)
+            seen_groups.add(group_name)
         registered: dict[str, GroupSpec] = {}
-        for spec in groups or ():
+
+        def register(spec: GroupSpec) -> None:
             existing = registered.get(spec.name)
             if existing is None:
                 registered[spec.name] = spec
@@ -272,14 +308,18 @@ class LMM(IndexedModel):
                     f"conflicting grouping-factor specs for {spec.name!r}: "
                     f"{existing!r} and {spec!r}"
                 )
+
+        for spec in groups or ():
+            register(spec)
         for term in self.random:
-            registered.setdefault(term.group, Group(term.group))
-        residual_group = getattr(residual, "group", None)
+            registered.setdefault(term.group.name, term.group)
+        residual_group = _residual_group(residual)
         if residual_group is not None:
-            registered.setdefault(residual_group, Group(residual_group))
-        residual_coordinate = getattr(residual, "coordinate", None)
+            registered.setdefault(residual_group.name, residual_group)
+        residual_covariate = _residual_covariate(residual)
+        residual_coordinate = residual_covariate.name if residual_covariate is not None else None
         slope_coordinates = tuple(
-            dict.fromkeys(slope.coordinate for term in self.random for slope in term.slopes)
+            dict.fromkeys(slope.coordinate.name for term in self.random for slope in term.slopes)
         )
         if coordinate is not None:
             if residual_coordinate is not None and residual_coordinate != coordinate:
@@ -294,18 +334,61 @@ class LMM(IndexedModel):
             coordinate_name = slope_coordinates[0]
         else:
             coordinate_name = None
+
+        primary: GroupSpec | None
+        if self.random:
+            primary = _primary_definition(self.random[0].group, registered)
+        elif residual_group is not None:
+            primary = _primary_definition(residual_group, registered)
+        elif registered:
+            primary = next(iter(registered.values()))
+        else:
+            primary = None
+
+        group_index: sp.Symbol | None = None if primary is None else primary.index
+        occasion_definition = self._canonical_covariate(coordinate_name, residual_covariate)
+        occasion_index: sp.Symbol | None = (
+            None if occasion_definition is None else occasion_definition.index
+        )
+        if group_index is not None and occasion_index is not None and group_index == occasion_index:
+            raise ModelError("group and occasion indices must be distinct")
+
+        self.primary_group_definition = primary
+        self.occasion_definition = occasion_definition
+        self.group_index = group_index
+        self.occasion_index = occasion_index
+
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
             groups=tuple(registered.values()),
             coordinate=coordinate_name,
             occasion=occasion,
-            covariates=tuple(fixed.slopes),
+            covariates=tuple(covariate.name for covariate in fixed.covariates()),
         )
+
+    def _canonical_covariate(
+        self,
+        coordinate_name: str | None,
+        residual_covariate: Covariate | None,
+    ) -> Covariate | None:
+        """Return the covariate definition for the model's canonical coordinate."""
+        if coordinate_name is None:
+            return None
+        if residual_covariate is not None and residual_covariate.name == coordinate_name:
+            return residual_covariate
+        for covariate in self.fixed.covariates():
+            if covariate.name == coordinate_name:
+                return covariate
+        for term in self.random:
+            for slope in term.slopes:
+                if slope.coordinate.name == coordinate_name:
+                    return slope.coordinate
+        return Covariate(coordinate_name)
 
     def design(self, i: Any) -> Any:
         """Return the fixed-effect design row in ``Fixed.names()`` order."""
         terms = [] if self.fixed.intercept is None else [sp.Integer(1)]
-        terms.extend(self.covariate(i, name) for name in self.fixed.slopes)
+        terms.extend(self.covariate(i, covariate.name) for covariate in self.fixed.covariates())
         return sp.Matrix(terms) if terms else sp.zeros(0, 1)
 
     def levels(self, factor: str) -> Any:
@@ -318,8 +401,247 @@ class LMM(IndexedModel):
 
     def dimensions(self) -> tuple[Any, Any]:
         """Return observations and total random-coefficient dimension."""
-        q = sum(self.levels(term.group) * term.dim for term in self.random)
+        q = sum(self.levels(term.group.name) * term.dim for term in self.random)
         return self.n, q
+
+    @property
+    def primary_group(self) -> str | None:
+        """Return the primary grouping factor for canonical group indexing."""
+        definition = self.primary_group_definition
+        if definition is None:
+            return None
+        return definition.name
+
+    def _require_group_index(self) -> str:
+        """Return the primary grouping-factor name or raise `NotDefined`."""
+        factor = self.primary_group
+        if self.group_index is None or factor is None:
+            raise NotDefined("canonical group indexing requires a grouping factor")
+        return factor
+
+    def _require_occasion_index(self) -> Covariate:
+        """Return the canonical occasion definition or raise `NotDefined`."""
+        definition = self.occasion_definition
+        if self.occasion_index is None or definition is None:
+            raise NotDefined("canonical occasion indexing requires a coordinate")
+        return definition
+
+    def _group_rows(self, group: Any) -> list[int]:
+        """Return dense observation rows belonging to `group` in canonical order."""
+        factor = self._require_group_index()
+        if not self._dense:
+            raise ModelError("group rows are available only in dense mode")
+        rows = [k for k in range(self.n) if self.group(k, factor) == group]
+        if self.occasion_index is None:
+            return rows
+        codes = self._dense_occasion_codes(self._group_spec(factor))
+        return sorted(rows, key=lambda row: codes[row])
+
+    def _primary_random_term(self) -> RandomEffects | None:
+        """Return the primary grouping factor's random-effects term, if any."""
+        factor = self.primary_group
+        if factor is None:
+            return None
+        for term in self.random:
+            if term.group.name == factor:
+                return term
+        return None
+
+    def _random_term_offset(self, term: RandomEffects) -> int:
+        """Return the dense `matrix_z` column offset for `term`."""
+        offset = 0
+        for candidate in self.random:
+            if candidate is term:
+                return offset
+            labels = set(self._dense_group_codes(self._group_spec(candidate.group.name)))
+            offset += len(labels) * candidate.dim
+        return offset
+
+    def group_count(self) -> Any:
+        """Return the number of groups (symbolic or dense)."""
+        factor = self._require_group_index()
+        if self._dense:
+            return len(set(self._dense_group_codes(self._group_spec(factor))))
+        return sp.Symbol("m", positive=True, integer=True)
+
+    def occasion_count(self) -> Any:
+        """Return the number of occasions for a balanced panel."""
+        definition = self._require_occasion_index()
+        factor = self._require_group_index()
+        if not self._dense:
+            return sp.Symbol("T", positive=True, integer=True)
+        column = self._observation_column(definition.name)
+        codes = self._dense_group_codes(self._group_spec(factor))
+        per_group: dict[int, list[Any]] = {}
+        for position, code in enumerate(codes):
+            per_group.setdefault(code, []).append(column[position])
+        occasion_sets: list[set[Any]] = []
+        for values in per_group.values():
+            distinct = set(values)
+            if len(distinct) != len(values):
+                raise NotDefined("occasion vectors require a balanced panel")
+            occasion_sets.append(distinct)
+        if not occasion_sets:
+            return 0
+        if any(values != occasion_sets[0] for values in occasion_sets[1:]):
+            raise NotDefined("occasion vectors require a balanced panel")
+        return len(occasion_sets[0])
+
+    def group_size(self, group: Any) -> Any:
+        """Return the number of observations in `group`."""
+        self._require_group_index()
+        if self._dense:
+            return len(self._group_rows(group))
+        from .canonical import group_size_symbol
+
+        return group_size_symbol(group)
+
+    def response(self, group: Any, occasion: Any = None) -> Any:
+        """Return Y_group as a row, or Y_group,occasion as a scalar."""
+        self._require_group_index()
+        matrix = self.response_matrix()
+        if occasion is None:
+            return matrix[group, :]
+        return matrix[group, occasion]
+
+    def response_matrix(self) -> Any:
+        """Return the balanced-panel response matrix Y (groups x occasions)."""
+        self._require_group_index()
+        self._require_occasion_index()
+        return sp.MatrixSymbol("Y", self.group_count(), self.occasion_count())
+
+    def time_response(self, occasion: Any) -> Any:
+        """Return the occasion column vector Y[:, occasion]."""
+        return self.response_matrix()[:, occasion]
+
+    def fixed_design(self, group: Any) -> Any:
+        """Return X_group."""
+        self._require_group_index()
+        from .canonical import group_mean
+
+        if self._dense:
+            rows = self._group_rows(group)
+            return self.matrix_x()[rows, :]
+        return group_mean(group, self.group_size(group), len(self.fixed.coefficients()))
+
+    def random_design(self, group: Any) -> Any:
+        """Return Z_group for the primary grouping factor."""
+        factor = self._require_group_index()
+        from .canonical import group_random_design
+
+        term = self._primary_random_term()
+        q = 0 if term is None else term.dim
+        if self._dense:
+            rows = self._group_rows(group)
+            if term is None:
+                return sp.zeros(len(rows), 0)
+            levels = sorted(set(self._dense_group_codes(self._group_spec(factor))))
+            if group not in levels:
+                return sp.zeros(len(rows), q)
+            start = self._random_term_offset(term) + levels.index(group) * q
+            return self.matrix_z()[rows, start : start + q]
+        return group_random_design(group, self.group_size(group), q)
+
+    def residual_covariance(self, group: Any) -> Any:
+        """Return R_group."""
+        self._require_group_index()
+        from .canonical import group_residual
+
+        if self._dense:
+            rows = self._group_rows(group)
+            return self.matrix_r()[rows, :][:, rows]
+        return group_residual(group, self.group_size(group))
+
+    def random_effect(self, group: Any) -> Any:
+        """Return b_group for the primary grouping factor."""
+        self._require_group_index()
+        from .canonical import group_coefficients
+
+        term = self._primary_random_term()
+        q = 0 if term is None else term.dim
+        return group_coefficients(group, q)
+
+    def _require_single_grouping_factor(self) -> None:
+        """Raise `NotDefined` when random terms use more than one factor."""
+        groups = {term.group for term in self.random}
+        if len(groups) > 1:
+            raise NotDefined("canonical group blocks require a single grouping factor")
+
+    def _occasion_moment_group_count(self) -> int:
+        """Return a concrete group count after validating the balanced panel."""
+        count = self.group_count()
+        if not isinstance(count, int):
+            raise NotDefined("occasion-column moments require a concrete group count")
+        self.occasion_count()
+        return count
+
+    def _entry_row(self, group: Any, occasion: Any) -> Any:
+        """Return the group-block row for canonical `occasion`."""
+        if not self._dense:
+            return occasion
+        factor = self._require_group_index()
+        codes = self._dense_occasion_codes(self._group_spec(factor))
+        for position, row in enumerate(self._group_rows(group)):
+            if codes[row] == occasion:
+                return position
+        raise NotDefined(f"occasion {occasion!r} is not present in group {group!r}")
+
+    def group_mean(self, group: Any) -> Any:
+        """Return E[Y_group]."""
+        coefficients = self.fixed.coefficients()
+        beta = sp.Matrix(len(coefficients), 1, coefficients)
+        return self.fixed_design(group) * beta
+
+    def group_covariance(self, group: Any) -> Any:
+        """Return Cov(Y_group); requires a single grouping factor."""
+        self._require_single_grouping_factor()
+        term = self._primary_random_term()
+        residual = self.residual_covariance(group)
+        if term is None:
+            return residual
+        Z = self.random_design(group)
+        G = term.cov.dense()
+        return Z * G * Z.T + residual
+
+    def group_cross_covariance(self, group: Any, other: Any) -> Any:
+        """Return Cov(Y_group, Y_other); zero for a single grouping factor."""
+        self._require_single_grouping_factor()
+        if group == other:
+            return self.group_covariance(group)
+        rows = self.group_size(group)
+        columns = self.group_size(other)
+        if isinstance(rows, int) and isinstance(columns, int):
+            return sp.zeros(rows, columns)
+        return sp.ZeroMatrix(rows, columns)
+
+    def entry_mean(self, group: Any, occasion: Any) -> Any:
+        """Return E[Y_group,occasion]."""
+        return self.group_mean(group)[self._entry_row(group, occasion), 0]
+
+    def entry_covariance(self, group: Any, t1: Any, t2: Any) -> Any:
+        """Return Cov(Y_group,t1, Y_group,t2)."""
+        row1 = self._entry_row(group, t1)
+        row2 = self._entry_row(group, t2)
+        return self.group_covariance(group)[row1, row2]
+
+    def entry_cross_covariance(self, group: Any, t1: Any, other: Any, t2: Any) -> Any:
+        """Return Cov(Y_group,t1, Y_other,t2)."""
+        row1 = self._entry_row(group, t1)
+        row2 = self._entry_row(other, t2)
+        return self.group_cross_covariance(group, other)[row1, row2]
+
+    def time_mean(self, occasion: Any) -> Any:
+        """Return E[Y_{.occasion}] for a concrete balanced panel."""
+        count = self._occasion_moment_group_count()
+        self._require_single_grouping_factor()
+        entries = [self.entry_mean(group, occasion) for group in range(count)]
+        return sp.Matrix(count, 1, entries)
+
+    def time_covariance(self, t1: Any, t2: Any) -> Any:
+        """Return Cov(Y_{.t1}, Y_{.t2}) as a diagonal group matrix."""
+        count = self._occasion_moment_group_count()
+        self._require_single_grouping_factor()
+        return sp.diag(*(self.entry_covariance(group, t1, t2) for group in range(count)))
 
     def dense(
         self,
@@ -356,8 +678,8 @@ class LMM(IndexedModel):
         columns = []
         if self.fixed.intercept is not None:
             columns.append(sp.ones(self.n, 1))
-        for name in self.fixed.slopes:
-            columns.append(self._column(name))
+        for covariate in self.fixed.covariates():
+            columns.append(self._column(covariate.name))
         if not columns:
             return sp.zeros(self.n, 0)
         return sp.Matrix.hstack(*columns)
@@ -369,7 +691,7 @@ class LMM(IndexedModel):
             return sp.MatrixSymbol("Z", n, q)
         columns = []
         for term in self.random:
-            labels = self._dense_group_codes(self._group_spec(term.group))
+            labels = self._dense_group_codes(self._group_spec(term.group.name))
             designs = [term.z(self, k) for k in range(self.n)]
             for level in sorted(set(labels)):
                 for a in range(term.dim):
@@ -391,7 +713,7 @@ class LMM(IndexedModel):
 
         blocks = []
         for term in self.random:
-            labels = sorted(set(self._dense_group_codes(self._group_spec(term.group))))
+            labels = sorted(set(self._dense_group_codes(self._group_spec(term.group.name))))
             blocks.extend([term.cov.dense()] * len(labels))
         if not blocks:
             return sp.zeros(0, 0)
@@ -456,7 +778,9 @@ class LMM(IndexedModel):
         zi = term.z(self, i)
         zj = term.z(self, j)
         value = (zi.T * term.cov.dense() * zj)[0, 0]
-        return value * sp.KroneckerDelta(self.group(i, term.group), self.group(j, term.group))
+        return value * sp.KroneckerDelta(
+            self.group(i, term.group.name), self.group(j, term.group.name)
+        )
 
     def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
         """Resolve a factor's delta by placing both rows in one common level."""
@@ -674,25 +998,23 @@ class LMM(IndexedModel):
             if self._dense:
                 columns: list[Any] = [sp.Integer(1)] if term.intercept else []
                 for slope in term.slopes:
-                    if slope.coordinate not in values:
-                        raise ModelError(
-                            f"icc requires a value for coordinate {slope.coordinate!r}"
-                        )
-                    columns.append(values[slope.coordinate])
+                    coordinate_name = slope.coordinate.name
+                    if coordinate_name not in values:
+                        raise ModelError(f"icc requires a value for coordinate {coordinate_name!r}")
+                    columns.append(values[coordinate_name])
                 z = sp.Matrix(columns)
             else:
                 z = term.z(self, 0)
                 for slope in term.slopes:
-                    if slope.coordinate not in values:
-                        raise ModelError(
-                            f"icc requires a value for coordinate {slope.coordinate!r}"
-                        )
+                    coordinate_name = slope.coordinate.name
+                    if coordinate_name not in values:
+                        raise ModelError(f"icc requires a value for coordinate {coordinate_name!r}")
                     key = self.coordinate(
                         0,
-                        slope.coordinate,
-                        within=term.group if slope.within else None,
+                        coordinate_name,
+                        within=term.group.name if slope.within else None,
                     )
-                    z = z.subs({key: values[slope.coordinate]})
+                    z = z.subs({key: values[coordinate_name]})
             random_part += (z.T * term.cov.dense() * z)[0, 0]
         residual_part = self.residual.entry(0, 0, self)
         canonical = self.coordinate_name

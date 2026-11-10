@@ -136,7 +136,7 @@ def test_ar1_uses_named_coordinate_as_canonical_symbol():
     model = LMM(fixed=Fixed(intercept=b0), random=[], residual=ar1)
     i, j = model.indices()
 
-    assert ar1.coordinate == "visit_time"
+    assert ar1.coordinate.name == "visit_time"
     entry = ar1.entry(i, j, model)
     inside = sp.IndexedBase("visit_time")[model.group(i, "subject"), model.occasion(i, "subject")]
     assert inside in entry.atoms(sp.Indexed)

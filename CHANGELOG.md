@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-10
+
+This release includes the blackboard facade and the canonical group/occasion
+indexing layer. There was no separate 0.4.0 release.
+
+### Added
+
+- Canonical group/occasion indexing. `Group`, `Nested`, `Crossed`, and
+  `Covariate` accept an `index=` symbol and derive one from the name or factor
+  label when omitted. `LMM.group_index` and `LMM.occasion_index` expose the
+  model-defined symbols.
+- Canonical model API: `group_count()`, `occasion_count()`, `group_size(g)`,
+  `response_matrix()`, `response(g)` for `Y_g`, `time_response(t)` for
+  `Y[:, t]`, `response(g, t)` for `Y_gt`, `fixed_design(g)`, `random_design(g)`,
+  `residual_covariance(g)`, `random_effect(g)`, `group_mean(g)`,
+  `group_covariance(g)`, `group_cross_covariance(g, h)`, `entry_mean(g, t)`,
+  `entry_covariance(g, t, s)`, `entry_cross_covariance(g, t, h, s)`,
+  `time_mean(t)`, and `time_covariance(t, s)`.
+- `ModelSymbols` on canonical indexing. `syms.i` is `model.group_index` and
+  `syms.t` is `model.occasion_index`; `syms.Y[syms.i]` is `Y_i`,
+  `syms.Y[syms.t]` is `Y[:, t]`, and `syms.Y[syms.i, syms.t]` is `Y_it`.
+  `syms.b[syms.i]` is `b_i`, with `syms.X(syms.i)`, `syms.Z(syms.i)`,
+  `syms.R(syms.i)`, `syms.G`, and `syms.beta`.
+- Blackboard moments for canonical group responses and entries: `E`, `Var`,
+  `Cov`, `given=syms.b[syms.i]` conditional moments, and
+  `total_variance`/`total_covariance`.
+- `docs/pedagogy/blackboard.md`, a worked canonical-indexing example.
+
+### Changed
+
+- Public notation now uses `Y_i` for the group response vector. In a balanced
+  panel `Y_i = Y[i, :]` is a row, `Y[:, t]` (also `Y[t]`) is the occasion
+  column, and `Y_{it}` is the scalar entry; in an unbalanced panel `Y_i` is not
+  a row of a rectangular matrix. `V_i = Z_i G Z_i' + R_i`,
+  `Cov(Y_i, Y_j) = 0` for `i != j`, and `Cov(Y_{it}, Y_{is}) = [V_i]_{ts}`.
+  Python examples use 0-based indices; rendered formulas use 1-based bounds.
+- The primary group is the first random block's `Group`, else the residual
+  group definition, else the first registered group. The canonical occasion is
+  the residual coordinate `Covariate`, else the fixed-slope `Covariate` with
+  the same name, else a random-slope `Covariate` when exactly one distinct
+  coordinate exists, else an explicit `coordinate=` name synthesized as
+  `Covariate(name)`, else none. An explicit `coordinate=` conflicting with a
+  residual coordinate raises `ModelError`. Multiple grouping factors keep the
+  canonical `Y_i` block on the primary group, but group and entry covariance
+  raise `NotDefined` instead of dropping the other factors' contributions.
+- `Fixed.slopes`, `RandomSlope`, `RandomEffects`, and the `AR1` and `Toeplitz`
+  residual covariances accept `Group`/`Covariate` definitions.
+  `RandomSlope(coordinate=...)` takes a `Covariate` definition in canonical
+  code; a bare string is accepted only as a compatibility shim and normalized
+  to `Covariate(name)`.
+- `LMM` rejects equal group and occasion index symbols with `ModelError`.
+- The stacked row API (`mean(row)`, `covariance(row, row)`, `variance(row)`,
+  `correlation(row, row)`, `variogram(row, row)`, `covariogram(row, row)`, and
+  `blup_cross_covariance(row)`) is documented as stacked-engine internals, not
+  canonical model notation. It remains available for matrix assembly, dense
+  evaluation, variograms, and BLUP.
+- `Y[0]` is ambiguous and raises `ModelError`; use `Y[0, :]` for a group row or
+  `Y[:, 0]` for an occasion column.
+
+### Migration
+
+| Before (row-index phrasing) | Canonical 0.5.0 |
+|---|---|
+| `Y_i` meant the scalar response at stacked row `i` | `Y_i` is the group row; the scalar entry is `Y_{it}` |
+| `model.mean(i)` used as canonical notation | `model.group_mean(i)` or `model.entry_mean(i, t)`; `model.mean(row)` is stacked-engine internal |
+| `model.covariance(i, j)` used as canonical notation | `model.group_covariance(i)` or `model.entry_covariance(i, t, s)`; `model.covariance(row, row)` is stacked-engine internal |
+| `Group("subject")` | `Group("subject", index=sp.Symbol("i", integer=True))` (index optional) |
+| `Fixed(slopes={"time": b1})` | `visit = Covariate("time", index=sp.Symbol("t", integer=True)); Fixed(slopes={visit: b1})` |
+| `RandomSlope("time")` | `RandomSlope(visit)` |
+| `syms.Y[i]` returned a scalar row response | `syms.Y[syms.i]` is `Y_i`; `syms.Y[syms.i, syms.t]` is the scalar |
+
 ## [0.3.0] - 2026-11-10
 
 ### Breaking

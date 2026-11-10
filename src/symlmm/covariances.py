@@ -10,6 +10,7 @@ import sympy as sp  # type: ignore[import-untyped]
 
 from .constraints import Constraint, Relation, is_positive_definite
 from .errors import CovarianceConstructionError, ModelError
+from .specs import Covariate, Group, _coerce_covariate, _coerce_group
 
 _ZERO = sp.Integer(0)
 
@@ -232,15 +233,15 @@ class Toeplitz(ResidualCovariance):
     def __init__(
         self,
         *,
-        group: str,
-        coordinate: str,
+        group: str | Group,
+        coordinate: str | Covariate,
         variances: Sequence[sp.Expr],
         correlations: Sequence[sp.Expr],
         nugget: sp.Expr = _ZERO,
     ) -> None:
         """Build a Toeplitz residual covariance from variance and lag correlations."""
-        self.group = group
-        self.coordinate = coordinate
+        self.group = _coerce_group(group)
+        self.coordinate = _coerce_covariate(coordinate)
         self.variances = tuple(variances)
         self.correlations = tuple(correlations)
         self.nugget = nugget
@@ -249,9 +250,11 @@ class Toeplitz(ResidualCovariance):
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        ti = model.coordinate(i, self.coordinate, within=self.group)
-        tj = model.coordinate(j, self.coordinate, within=self.group)
+        same_group = sp.KroneckerDelta(
+            model.group(i, self.group.name), model.group(j, self.group.name)
+        )
+        ti = model.coordinate(i, self.coordinate.name, within=self.group.name)
+        tj = model.coordinate(j, self.coordinate.name, within=self.group.name)
         lag = sp.Abs(ti - tj)
         return self._lag_value(lag) * same_group + _nugget_entry(self.nugget, i, j)
 
@@ -318,8 +321,8 @@ class AR1(ResidualCovariance):
     def __init__(
         self,
         *,
-        group: str,
-        coordinate: str,
+        group: str | Group,
+        coordinate: str | Covariate,
         var: sp.Expr,
         rho: sp.Expr,
         nugget: sp.Expr = _ZERO,
@@ -337,17 +340,19 @@ class AR1(ResidualCovariance):
         coordinate only when it conflicts with a residual-declared coordinate;
         random-slope coordinates may differ.
         """
-        self.group = group
-        self.coordinate = coordinate
+        self.group = _coerce_group(group)
+        self.coordinate = _coerce_covariate(coordinate)
         self.var = var
         self.rho = rho
         self.nugget = nugget
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        ti = model.coordinate(i, self.coordinate, within=self.group)
-        tj = model.coordinate(j, self.coordinate, within=self.group)
+        same_group = sp.KroneckerDelta(
+            model.group(i, self.group.name), model.group(j, self.group.name)
+        )
+        ti = model.coordinate(i, self.coordinate.name, within=self.group.name)
+        tj = model.coordinate(j, self.coordinate.name, within=self.group.name)
         lag = sp.Abs(ti - tj)
         return self.var * self.rho**lag * same_group + _nugget_entry(self.nugget, i, j)
 
