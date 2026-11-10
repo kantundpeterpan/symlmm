@@ -48,6 +48,8 @@ class IndexedModel:
         self.occasion_names = occasion
         self.covariates = tuple(covariates)
         self._coordinate_cache: dict[tuple[str, str], dict[tuple[int, int], Any]] = {}
+        self._group_cache: dict[str, list[int]] = {}
+        self._occasion_cache: dict[str, list[int]] = {}
         self._i = observation_index("i")
         self._j = observation_index("j")
 
@@ -113,6 +115,9 @@ class IndexedModel:
 
     def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
         """Return integer codes for the composite label of `spec`."""
+        cached = self._group_cache.get(spec.label)
+        if cached is not None:
+            return cached
         raw: list[Any]
         if isinstance(spec, Nested):
             if spec.label in self._observations:
@@ -131,7 +136,9 @@ class IndexedModel:
         else:
             raw = list(self._observation_column(spec.name))
         codes = {label: code for code, label in enumerate(sorted(set(raw), key=str))}
-        return [codes[label] for label in raw]
+        result = [codes[label] for label in raw]
+        self._group_cache[spec.label] = result
+        return result
 
     def _occasion_column(self, factor: str) -> str | None:
         """Return the explicit occasion column for `factor`, if configured."""
@@ -140,17 +147,18 @@ class IndexedModel:
         return self.occasion_names
 
     def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
-        """Return integer occasion codes for `spec`."""
+        """Return integer occasion codes within each group for `spec`."""
+        cached = self._occasion_cache.get(spec.label)
+        if cached is not None:
+            return cached
         column = self._occasion_column(spec.name)
         if column is not None:
             raw = list(self._observation_column(column))
-            codes = {value: code for code, value in enumerate(sorted(set(raw), key=str))}
-            return [codes[value] for value in raw]
-        groups = self._dense_group_codes(spec)
-        if self.coordinate_name is not None:
+        elif self.coordinate_name is not None:
             raw = list(self._observation_column(self.coordinate_name))
         else:
             raw = list(range(self.n))
+        groups = self._dense_group_codes(spec)
         result = [0] * self.n
         for group_code in sorted(set(groups)):
             positions = [k for k, value in enumerate(groups) if value == group_code]
@@ -163,6 +171,7 @@ class IndexedModel:
                     code += 1
                     previous = value
                 result[position] = code
+        self._occasion_cache[spec.label] = result
         return result
 
     def _nested_coordinate_value(self, i: Any, name: str, spec: GroupSpec) -> Any:
@@ -171,17 +180,18 @@ class IndexedModel:
         mapping = self._coordinate_cache.get(key)
         if mapping is None:
             mapping = {}
+            groups = self._dense_group_codes(spec)
+            occasions = self._dense_occasion_codes(spec)
             for k in range(self.n):
-                group = self.group(k, spec.name)
-                occasion = self.occasion(k, spec.name)
+                pair = (groups[k], occasions[k])
                 value = self._observation_value(k, name)
-                previous = mapping.get((group, occasion), value)
+                previous = mapping.get(pair, value)
                 if previous != value:
                     raise ModelError(
                         f"coordinate {name!r} is not constant within {spec.label!r}: "
-                        f"({group}, {occasion}) has {previous!r} and {value!r}"
+                        f"({pair[0]}, {pair[1]}) has {previous!r} and {value!r}"
                     )
-                mapping[(group, occasion)] = value
+                mapping[pair] = value
             self._coordinate_cache[key] = mapping
         return mapping[(self.group(i, spec.name), self.occasion(i, spec.name))]
 
@@ -300,6 +310,8 @@ class LMM(IndexedModel):
         dense._observations = data
         dense._dense = True
         dense._coordinate_cache = {}
+        dense._group_cache = {}
+        dense._occasion_cache = {}
         dense.n = lengths.pop()
         return dense
 

@@ -228,3 +228,45 @@ def test_dense_nested_coordinate_rejects_conflict():
     assert dense.coordinate(0, "visit_time", within="subject") == 10
     with pytest.raises(ModelError, match="not constant within"):
         conflicting.coordinate(1, "visit_time", within="subject")
+
+
+def test_dense_explicit_occasion_codes_are_ranked_within_group():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        occasion="occasion",
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=["s1v1", "s1v2", "s2v1", "s2v2"],
+        visit_time=[10, 11, 10, 11],
+    )
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+
+
+def test_repeated_dense_accessors_are_consistent():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomSlope(group="subject", coordinate="visit_time", cov=Diagonal([tau2, tau2]))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], visit_time=[10, 11, 10, 11])
+    occasions = [dense.occasion(k, "subject") for k in range(4)]
+    coordinates = [dense.coordinate(k, "visit_time", within="subject") for k in range(4)]
+    assert occasions == [0, 1, 0, 1]
+    assert coordinates == [10, 11, 10, 11]
+    first_z = dense.matrix_z()
+    assert [dense.occasion(k, "subject") for k in range(4)] == occasions
+    assert [dense.coordinate(k, "visit_time", within="subject") for k in range(4)] == coordinates
+    assert dense.matrix_z() == first_z
+    assert dense.matrix_z().shape == (4, 4)
