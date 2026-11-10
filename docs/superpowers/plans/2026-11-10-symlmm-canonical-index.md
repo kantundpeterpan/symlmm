@@ -23,12 +23,52 @@
 
 ## Concurrency Plan
 
-- **Lane A — code:** Task 1 → Task 2 → Task 3, sequential. All touch
-  `model.py`/canonical symbols/blackboard and the same tests.
-- **Lane B — docs:** Task 4 starts after Task 2 is reviewed, in a separate docs
-  worktree, parallel with Task 3.
-- Peak: one code implementer + one docs agent.
-- Controller updates `src/symlmm/__init__.py` exports and closes issue #1.
+**Verdict:** one code implementer at a time. Optional one docs agent after Task 2.
+Peak implementation concurrency: 2. Do not run Tasks 0–3 in parallel.
+
+### Dependency graph
+
+```text
+Task 0 (index-bearing definitions)
+   └── Task 1 (canonical symbols)
+          └── Task 2 (group/time moments)
+                 ├── Task 3 (blackboard)
+                 └── Task 4 (docs, parallel with Task 3)
+```
+
+### File-conflict matrix
+
+| Task | Writes | Conflicts with |
+|---|---|---|
+| 0 | `specs.py`, `model.py`, `test_specs.py`, `test_indices.py` | 1, 2, 3 |
+| 1 | `canonical.py`, `model.py`, `test_canonical.py` | 0, 2, 3 |
+| 2 | `model.py`, `test_canonical.py`, dense integration test | 1, 3 |
+| 3 | `blackboard.py`, `test_blackboard.py`, `test_canonical.py` | 1, 2 |
+| 4 | docs, `pyproject.toml`, `CHANGELOG.md`, `uv.lock` | none (docs worktree) |
+
+### Schedule
+
+1. Task 0 implementer → task review → fix.
+2. Task 1 implementer → review → fix.
+3. Task 2 implementer → review → fix.
+4. Start Task 4 docs in a separate worktree, parallel with Task 3.
+5. Task 3 implementer → review → fix.
+6. Merge docs into code branch; controller updates `__init__.py`; run final
+   whole-branch review; close issue #1.
+
+### Worktrees
+
+- Code: `feat/canonical-index`, one worktree, sequential commits.
+- Docs: `docs/canonical-index`, branched from the code branch after Task 2,
+  merged or cherry-picked before final review.
+- No per-task worktrees: Tasks 0–3 share `model.py` and test files.
+
+### Agent policy
+
+- Implementers: Flash `max`.
+- Task reviewers: Flash `max`.
+- Final review: Pro `default`.
+- Controller owns exports, issue closure, merge, cleanup.
 
 ---
 
