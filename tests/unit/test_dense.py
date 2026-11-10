@@ -169,3 +169,18 @@ def test_dense_design_matches_matrix_x_rows():
     dense = model.dense(subject=[0, 0, 1], time=[0, 2, 1])
     for k in range(3):
         assert dense.design(k) == dense.matrix_x()[k, :].T
+
+
+def test_dense_icc_random_slope_evaluates_at_given_time():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        residual=IID(var=sigma2),
+        n=2,
+    )
+    dense = model.dense(subject=[0, 0], time=[1, 2])
+    value = dense.icc(at={"time": 5}, form="sum")
+    assert sp.simplify(value - 26 * tau2 / (26 * tau2 + sigma2)) == 0
+    assert not value.has(sp.Indexed)

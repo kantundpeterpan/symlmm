@@ -512,10 +512,13 @@ class LMM(IndexedModel):
             z = z_accessor(self, 0) if z_accessor is not None else sp.Matrix([1])
             term_time = getattr(term, "time", None)
             if time_value is not None and term_time is not None:
-                z = z.subs({self.time(0, term_time): time_value})
+                if self._dense:
+                    z = sp.Matrix([z[0], time_value])
+                else:
+                    z = z.subs({self.time(0, term_time): time_value})
             random_part += (z.T * term.cov.dense() * z)[0, 0]
         residual_part = self.residual.entry(0, 0, self)
-        if time_value is not None and canonical is not None:
+        if time_value is not None and canonical is not None and not self._dense:
             residual_part = residual_part.subs({self.time(0, canonical): time_value})
         value = random_part / (random_part + residual_part)
         if form.value == "sum":
