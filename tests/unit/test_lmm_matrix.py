@@ -6,7 +6,7 @@ import sympy as sp
 from symlmm.covariances import IID, Scalar
 from symlmm.errors import ModelError
 from symlmm.model import LMM
-from symlmm.specs import Crossed, Fixed, Group, Nested, RandomIntercept
+from symlmm.specs import Crossed, Fixed, Group, Nested, RandomEffects
 
 
 def test_matrix_shapes():
@@ -15,7 +15,7 @@ def test_matrix_shapes():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     n, q = model.dimensions()
@@ -33,7 +33,7 @@ def test_explicit_n_and_group_registration():
     n = sp.Symbol("n", positive=True, integer=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         n=n,
     )
@@ -51,7 +51,7 @@ def test_levels_use_composite_labels_for_nested_and_crossed():
 
     nested = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="visit", cov=Scalar(tau2))],
+        random=[RandomEffects(group="visit", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         groups=[Nested("visit", within="subject")],
     )
@@ -59,7 +59,7 @@ def test_levels_use_composite_labels_for_nested_and_crossed():
 
     crossed = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="item", cov=Scalar(tau2))],
+        random=[RandomEffects(group="item", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         groups=[Crossed("subject", "item")],
     )
@@ -67,7 +67,7 @@ def test_levels_use_composite_labels_for_nested_and_crossed():
 
     plain = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     assert plain.dimensions()[1] == sp.Symbol("m_subject", positive=True, integer=True)
@@ -81,7 +81,7 @@ def test_conflicting_duplicate_grouping_specs_raise():
     with pytest.raises(ModelError, match="conflicting grouping-factor specs"):
         LMM(
             fixed=Fixed(intercept=b0),
-            random=[RandomIntercept(group="visit", cov=Scalar(tau2))],
+            random=[RandomEffects(group="visit", intercept=True, cov=Scalar(tau2))],
             residual=IID(var=sigma2),
             groups=[Nested("visit", within="subject"), Crossed("subject", "visit")],
         )
@@ -93,7 +93,7 @@ def test_identical_duplicate_grouping_specs_are_deduplicated():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         groups=[Group("subject"), Group("subject")],
     )
@@ -106,8 +106,8 @@ def test_multiple_random_terms_sum_dimensions():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[
-            RandomIntercept(group="subject", cov=Scalar(tau2)),
-            RandomIntercept(group="item", cov=Scalar(tau2)),
+            RandomEffects(group="subject", intercept=True, cov=Scalar(tau2)),
+            RandomEffects(group="item", intercept=True, cov=Scalar(tau2)),
         ],
         residual=IID(var=sigma2),
     )
@@ -124,7 +124,7 @@ def test_levels_match_composite_dimensions():
     sigma2 = sp.Symbol("sigma2", positive=True)
     nested = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="visit", cov=Scalar(tau2))],
+        random=[RandomEffects(group="visit", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         groups=[Nested("visit", within="subject")],
     )

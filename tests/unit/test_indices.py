@@ -74,11 +74,11 @@ def test_lmm_design_uses_fixed_columns_without_intercept():
     sigma2 = sp.Symbol("sigma2", positive=True)
     from symlmm.covariances import IID, Scalar
     from symlmm.model import LMM
-    from symlmm.specs import Fixed, RandomIntercept
+    from symlmm.specs import Fixed, RandomEffects
 
     model = LMM(
         fixed=Fixed(intercept=None, slopes={"time": b1}),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     i, _ = model.indices()
@@ -93,11 +93,11 @@ def test_lmm_design_uses_declared_slope_name():
     sigma2 = sp.Symbol("sigma2", positive=True)
     from symlmm.covariances import IID, Scalar
     from symlmm.model import LMM
-    from symlmm.specs import Fixed, RandomIntercept
+    from symlmm.specs import Fixed, RandomEffects
 
     model = LMM(
         fixed=Fixed(intercept=b0, slopes={"visit_time": b1}),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate="visit_time",
     )
@@ -113,12 +113,19 @@ def test_conflicting_term_coordinates_raise():
     from symlmm.covariances import AR1, Diagonal
     from symlmm.errors import ModelError
     from symlmm.model import LMM
-    from symlmm.specs import Fixed, RandomSlope
+    from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
     with pytest.raises(ModelError, match="conflicting coordinates"):
         LMM(
             fixed=Fixed(intercept=b1),
-            random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
+            random=[
+                RandomEffects(
+                    group="subject",
+                    intercept=True,
+                    slopes=(RandomSlope("time"),),
+                    cov=Diagonal([tau2, tau2]),
+                )
+            ],
             residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         )
 
@@ -130,11 +137,18 @@ def test_single_declared_coordinate_is_inferred():
     rho = sp.Symbol("rho", positive=True)
     from symlmm.covariances import AR1, Diagonal
     from symlmm.model import LMM
-    from symlmm.specs import Fixed, RandomSlope
+    from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
     model = LMM(
         fixed=Fixed(intercept=b1),
-        random=[RandomSlope(group="subject", coordinate="visit_time", cov=Diagonal([tau2, tau2]))],
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("visit_time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
         residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
     )
     assert model.coordinate_name == "visit_time"
@@ -148,12 +162,19 @@ def test_explicit_coordinate_validates_terms():
     from symlmm.covariances import AR1, Diagonal
     from symlmm.errors import ModelError
     from symlmm.model import LMM
-    from symlmm.specs import Fixed, RandomSlope
+    from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
     with pytest.raises(ModelError, match="conflicts with term coordinates"):
         LMM(
             fixed=Fixed(intercept=b1),
-            random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
+            random=[
+                RandomEffects(
+                    group="subject",
+                    intercept=True,
+                    slopes=(RandomSlope("time"),),
+                    cov=Diagonal([tau2, tau2]),
+                )
+            ],
             residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
             coordinate="visit_time",
         )

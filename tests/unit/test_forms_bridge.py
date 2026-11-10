@@ -3,7 +3,7 @@ import sympy as sp
 from symlmm.covariances import IID, Scalar
 from symlmm.forms import EntryMap, matrix_to_sum, sum_to_matrix
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects
 
 
 def test_random_intercept_sum_entry():
@@ -12,7 +12,7 @@ def test_random_intercept_sum_entry():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()
@@ -29,7 +29,7 @@ def test_matrix_to_sum_builds_lazy_entry_map():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()
@@ -45,7 +45,7 @@ def test_sum_to_matrix_returns_abstract_covariance():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
 
@@ -58,7 +58,7 @@ def test_bridge_operates_on_model_covariance():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()

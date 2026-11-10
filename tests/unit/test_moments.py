@@ -7,7 +7,7 @@ from symlmm.covariances import AR1, IID, Scalar, Unstructured
 from symlmm.errors import FormArityError, MissingFormError, ModelError, UnsupportedForm
 from symlmm.forms import DualForm, EntryMap
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept, RandomSlope
+from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
 
 def _model():
@@ -16,7 +16,7 @@ def _model():
     sigma2 = sp.Symbol("sigma2", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
 
@@ -71,19 +71,18 @@ def test_conditional_mean_intercept_uses_group_level():
     assert level_0 != level_1
 
 
-def test_conditional_mean_intercept_and_slope_do_not_collide():
+def test_conditional_mean_joint_block_components_do_not_collide():
     b0 = sp.Symbol("b0")
-    tau2 = sp.Symbol("tau2", positive=True)
     s0, s1 = sp.symbols("s0 s1", positive=True)
     rho_b = sp.Symbol("rho_b", real=True)
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[
-            RandomIntercept(group="subject", cov=Scalar(tau2)),
-            RandomSlope(
+            RandomEffects(
                 group="subject",
-                coordinate="time",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
                 cov=Unstructured.from_sd_corr([s0, s1], rho_b),
             ),
         ],
@@ -92,11 +91,13 @@ def test_conditional_mean_intercept_and_slope_do_not_collide():
     i, _ = model.indices()
     entry = sp.expand(model.conditional_mean(i, form="sum"))
     bases = {atom.base.name for atom in entry.atoms(sp.Indexed) if atom.base.name.startswith("b_")}
-    assert bases == {"b_subject_0", "b_subject_1"}
+    assert bases == {"b_subject_0"}
 
     level = model.group(i, "subject")
     assert entry.coeff(sp.IndexedBase("b_subject_0")[level, 0]) == 1
-    assert entry.coeff(sp.IndexedBase("b_subject_1")[level, 0]) == 1
+    assert entry.coeff(sp.IndexedBase("b_subject_0")[level, 1]) == model.coordinate(
+        i, "time", within="subject"
+    )
 
 
 def test_mean_sum_and_matrix_entries():
@@ -248,7 +249,7 @@ def _within_model():
     tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         coordinate="visit_time",
     )

@@ -4,7 +4,7 @@ import sympy as sp
 
 from symlmm.covariances import IID, Scalar
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects
 
 
 def test_two_random_terms_sum():
@@ -15,8 +15,8 @@ def test_two_random_terms_sum():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[
-            RandomIntercept(group="subject", cov=Scalar(tau_a)),
-            RandomIntercept(group="item", cov=Scalar(tau_b)),
+            RandomEffects(group="subject", intercept=True, cov=Scalar(tau_a)),
+            RandomEffects(group="item", intercept=True, cov=Scalar(tau_b)),
         ],
         residual=IID(var=sigma2),
     )

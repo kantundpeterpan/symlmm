@@ -4,7 +4,7 @@ import sympy as sp
 
 from symlmm.covariances import IID, Scalar
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects
 
 
 def test_blup_dense_matches_explicit_formula():
@@ -13,7 +13,7 @@ def test_blup_dense_matches_explicit_formula():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         n=4,
     )

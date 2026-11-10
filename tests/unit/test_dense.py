@@ -6,7 +6,7 @@ import sympy as sp
 from symlmm.covariances import AR1, IID, Diagonal, Scalar
 from symlmm.errors import ModelError, UnsupportedForm
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept, RandomSlope
+from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
 
 def _intercept_model():
@@ -15,7 +15,7 @@ def _intercept_model():
     sigma2 = sp.Symbol("sigma2", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         n=4,
     )
@@ -51,7 +51,7 @@ def test_matrix_x_returns_design_matrix():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0, slopes={"time": beta}),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         n=4,
     )
@@ -73,7 +73,14 @@ def test_dense_random_slope_uses_observation_coordinates():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=sp.Symbol("b0")),
-        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
         residual=IID(var=sigma2),
         n=4,
     )
@@ -124,7 +131,7 @@ def test_within_dense_same_and_cross_group():
     tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         coordinate="visit_time",
         n=4,
@@ -142,7 +149,7 @@ def test_within_dense_validates_factor_and_rejects_non_sum_forms():
     tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         coordinate="visit_time",
         n=4,
@@ -178,7 +185,7 @@ def test_dense_nested_uses_composite_level_codes():
 
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="visit", cov=Scalar(tau2))],
+        random=[RandomEffects(group="visit", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         groups=[Nested("visit", within="subject")],
         n=4,
@@ -199,7 +206,7 @@ def test_dense_crossed_uses_composite_level_codes():
 
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="item", cov=Scalar(tau2))],
+        random=[RandomEffects(group="item", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         groups=[Crossed("subject", "item")],
         n=4,
@@ -216,7 +223,7 @@ def test_dense_design_matches_matrix_x_rows():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0, slopes={"time": b1}),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         n=3,
     )
@@ -230,7 +237,14 @@ def test_dense_icc_random_slope_evaluates_at_given_coordinate():
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
         residual=IID(var=sigma2),
         n=2,
     )
@@ -246,7 +260,7 @@ def test_dense_occasion_codes_are_within_group():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate="visit_time",
         n=4,
@@ -263,7 +277,7 @@ def test_dense_nested_coordinate_rejects_conflict():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate="visit_time",
         occasion="occasion",
@@ -290,7 +304,7 @@ def test_dense_explicit_occasion_codes_are_ranked_within_group():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate="visit_time",
         occasion="occasion",
@@ -310,7 +324,7 @@ def test_dense_explicit_occasion_codes_follow_first_appearance_within_group():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate="visit_time",
         occasion="occasion",
@@ -330,7 +344,7 @@ def test_dense_explicit_occasion_codes_support_mixed_types():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate="visit_time",
         occasion="occasion",
@@ -350,11 +364,11 @@ def test_dense_random_slope_within_false_uses_global_coordinates():
     model = LMM(
         fixed=Fixed(intercept=sp.Symbol("b0")),
         random=[
-            RandomSlope(
+            RandomEffects(
                 group="subject",
-                coordinate="time",
+                intercept=True,
+                slopes=(RandomSlope("time", within=False),),
                 cov=Diagonal([tau2, tau2]),
-                within=False,
             )
         ],
         residual=IID(var=sigma2),
@@ -382,7 +396,14 @@ def test_repeated_dense_accessors_are_consistent():
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", coordinate="visit_time", cov=Diagonal([tau2, tau2]))],
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("visit_time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
         residual=IID(var=sigma2),
         coordinate="visit_time",
         n=4,

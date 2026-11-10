@@ -16,7 +16,7 @@ import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError
-from .specs import Crossed, Fixed, Group, Nested, RandomIntercept, RandomSlope
+from .specs import Crossed, Fixed, Group, Nested, RandomEffects
 from .symbols import observation_index
 
 if TYPE_CHECKING:
@@ -219,7 +219,7 @@ class LMM(IndexedModel):
         self,
         *,
         fixed: Fixed,
-        random: Iterable[RandomIntercept | RandomSlope],
+        random: Iterable[RandomEffects],
         residual: ResidualCovariance,
         groups: Sequence[GroupSpec] | None = None,
         n: Any | None = None,
@@ -229,6 +229,14 @@ class LMM(IndexedModel):
         self.fixed = fixed
         self.random = tuple(random)
         self.residual = residual
+        seen_groups: set[str] = set()
+        for term in self.random:
+            if term.group in seen_groups:
+                raise ModelError(
+                    f"multiple RandomEffects blocks for group {term.group!r}; "
+                    "combine intercepts and slopes into one block"
+                )
+            seen_groups.add(term.group)
         registered: dict[str, GroupSpec] = {}
         for spec in groups or ():
             existing = registered.get(spec.name)
@@ -244,14 +252,13 @@ class LMM(IndexedModel):
         residual_group = getattr(residual, "group", None)
         if residual_group is not None:
             registered.setdefault(residual_group, Group(residual_group))
-        declared: list[str] = []
         residual_coordinate = getattr(residual, "coordinate", None)
-        if residual_coordinate is not None:
-            declared.append(residual_coordinate)
-        for term in self.random:
-            term_coordinate = getattr(term, "coordinate", None)
-            if term_coordinate is not None:
-                declared.append(term_coordinate)
+        slope_coordinates = tuple(
+            dict.fromkeys(slope.coordinate for term in self.random for slope in term.slopes)
+        )
+        declared = ([residual_coordinate] if residual_coordinate is not None else []) + list(
+            slope_coordinates
+        )
         unique = tuple(dict.fromkeys(declared))
         coordinate_name: str | None
         if coordinate is not None:
@@ -292,7 +299,7 @@ class LMM(IndexedModel):
 
     def dimensions(self) -> tuple[Any, Any]:
         """Return observations and total random-coefficient dimension."""
-        q = sum(self.levels(term.group) * term.cov.dim for term in self.random)
+        q = sum(self.levels(term.group) * term.dim for term in self.random)
         return self.n, q
 
     def dense(
@@ -343,27 +350,14 @@ class LMM(IndexedModel):
         columns = []
         for term in self.random:
             labels = self._dense_group_codes(self._group_spec(term.group))
-            coordinate_name = getattr(term, "coordinate", None)
-            within = getattr(term, "within", False)
-            values = (
-                [
-                    self.coordinate(k, coordinate_name, within=term.group if within else None)
-                    for k in range(self.n)
-                ]
-                if coordinate_name is not None
-                else [0] * self.n
-            )
+            designs = [term.z(self, k) for k in range(self.n)]
             for level in sorted(set(labels)):
-                for a in range(term.cov.dim):
-                    column = []
-                    for label, value in zip(labels, values):
-                        if label != level:
-                            column.append(0)
-                        elif term.cov.dim == 1:
-                            column.append(1)
-                        else:
-                            column.append(1 if a == 0 else value)
-                    columns.append(sp.Matrix(column))
+                for a in range(term.dim):
+                    columns.append(
+                        sp.Matrix(
+                            [designs[k][a] if labels[k] == level else 0 for k in range(self.n)]
+                        )
+                    )
         if not columns:
             return sp.zeros(self.n, 0)
         return sp.Matrix.hstack(*columns)
@@ -437,11 +431,10 @@ class LMM(IndexedModel):
 
         return lambdify(self, args, form)
 
-    def _random_term_entry(self, term: RandomIntercept | RandomSlope, i: Any, j: Any) -> Any:
-        """Return the structured contribution of one random term."""
-        z_accessor = getattr(term, "z", None)
-        zi = z_accessor(self, i) if z_accessor is not None else sp.Matrix([1])
-        zj = z_accessor(self, j) if z_accessor is not None else sp.Matrix([1])
+    def _random_term_entry(self, term: RandomEffects, i: Any, j: Any) -> Any:
+        """Return the structured contribution of one random-effects block."""
+        zi = term.z(self, i)
+        zj = term.z(self, j)
         value = (zi.T * term.cov.dense() * zj)[0, 0]
         return value * sp.KroneckerDelta(self.group(i, term.group), self.group(j, term.group))
 
@@ -641,8 +634,8 @@ class LMM(IndexedModel):
         from .forms import DualForm, require_form
 
         form = require_form(form)
-        coordinate_terms = [term for term in self.random if getattr(term, "coordinate", None)]
-        if coordinate_terms and at is None:
+        coordinate_slopes = [(term, slope) for term in self.random for slope in term.slopes]
+        if coordinate_slopes and at is None:
             raise ModelError(
                 "icc requires at={'coordinate': value} for coordinate-varying random slopes"
             )
@@ -652,22 +645,36 @@ class LMM(IndexedModel):
             coordinate_value = at.get("coordinate")
             if coordinate_value is None and canonical is not None:
                 coordinate_value = at.get(canonical)
-            if coordinate_terms and coordinate_value is None:
+            if coordinate_slopes and coordinate_value is None:
                 raise ModelError(
                     "icc requires at={'coordinate': value} for coordinate-varying random slopes"
                 )
         random_part = sp.Integer(0)
         for term in self.random:
-            z_accessor = getattr(term, "z", None)
-            z = z_accessor(self, 0) if z_accessor is not None else sp.Matrix([1])
-            term_coordinate = getattr(term, "coordinate", None)
-            within = getattr(term, "within", False)
-            if coordinate_value is not None and term_coordinate is not None:
-                if self._dense:
-                    z = sp.Matrix([z[0], coordinate_value])
-                else:
-                    key = self.coordinate(0, term_coordinate, within=term.group if within else None)
-                    z = z.subs({key: coordinate_value})
+            if self._dense and term.slopes:
+                columns: list[Any] = [sp.Integer(1)] if term.intercept else []
+                for slope in term.slopes:
+                    values = (
+                        coordinate_value
+                        if coordinate_value is not None
+                        else self.coordinate(
+                            0,
+                            slope.coordinate,
+                            within=term.group if slope.within else None,
+                        )
+                    )
+                    columns.append(values)
+                z = sp.Matrix(columns)
+            else:
+                z = term.z(self, 0)
+                for slope in term.slopes:
+                    if coordinate_value is not None:
+                        key = self.coordinate(
+                            0,
+                            slope.coordinate,
+                            within=term.group if slope.within else None,
+                        )
+                        z = z.subs({key: coordinate_value})
             random_part += (z.T * term.cov.dense() * z)[0, 0]
         residual_part = self.residual.entry(0, 0, self)
         if coordinate_value is not None and canonical is not None and not self._dense:

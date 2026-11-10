@@ -92,32 +92,57 @@ class Fixed:
         return value
 
 
-@dataclass(frozen=True)
-class RandomIntercept:
-    """Random-intercept term."""
-
-    group: str
-    cov: CovarianceSpec
-
-    def __post_init__(self) -> None:
-        if self.cov.dim != 1:
-            raise CovarianceConstructionError("RandomIntercept covariance must be 1x1")
+def RandomIntercept(group: str, cov: CovarianceSpec) -> RandomEffects:
+    """Removed random-intercept constructor kept for controller-owned exports."""
+    raise CovarianceConstructionError(
+        "RandomIntercept was removed; use RandomEffects(group=..., intercept=True, cov=...)"
+    )
 
 
 @dataclass(frozen=True)
 class RandomSlope:
-    """Random slope term in a named coordinate."""
+    """A random-slope column in a named coordinate; no covariance."""
 
-    group: str
     coordinate: str
-    cov: CovarianceSpec
     within: bool = True
 
+
+@dataclass(frozen=True)
+class RandomEffects:
+    """One group's joint random-effect design and covariance."""
+
+    group: str
+    cov: CovarianceSpec
+    intercept: bool = False
+    slopes: tuple[RandomSlope, ...] = ()
+
     def __post_init__(self) -> None:
-        if self.cov.dim != 2:
-            raise CovarianceConstructionError("RandomSlope covariance must be 2x2")
+        object.__setattr__(self, "slopes", tuple(self.slopes))
+        if not self.intercept and not self.slopes:
+            raise CovarianceConstructionError("RandomEffects requires an intercept or slope")
+        if self.cov.dim != self.dim:
+            raise CovarianceConstructionError(
+                f"RandomEffects covariance must be {self.dim}x{self.dim}"
+            )
+
+    @property
+    def dim(self) -> int:
+        """Number of random coefficients in this block."""
+        return int(self.intercept) + len(self.slopes)
+
+    def coordinates(self) -> tuple[str, ...]:
+        """Return the slope coordinate names in design order."""
+        return tuple(slope.coordinate for slope in self.slopes)
 
     def z(self, model: IndexedModel, i: Any) -> sp.Matrix:
-        """Return the random-effect design row for observation `i`."""
-        value = model.coordinate(i, self.coordinate, within=self.group if self.within else None)
-        return sp.Matrix([1, value])
+        """Return the random-effect design column for observation `i`."""
+        columns: list[Any] = [sp.Integer(1)] if self.intercept else []
+        columns.extend(
+            model.coordinate(
+                i,
+                slope.coordinate,
+                within=self.group if slope.within else None,
+            )
+            for slope in self.slopes
+        )
+        return sp.Matrix(columns)

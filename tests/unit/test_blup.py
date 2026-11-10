@@ -7,7 +7,7 @@ from symlmm.covariances import IID, Scalar
 from symlmm.errors import FormArityError, MissingFormError, UnsupportedForm
 from symlmm.forms import DualForm
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects
 
 
 def _model():
@@ -16,7 +16,7 @@ def _model():
     sigma2 = sp.Symbol("sigma2", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
 
