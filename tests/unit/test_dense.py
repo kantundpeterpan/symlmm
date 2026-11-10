@@ -119,6 +119,24 @@ def test_dense_ar1_same_subject_adjacent_and_cross_subject():
     assert dense.covariance(1, 2, form="sum") == 0
 
 
+def test_within_dense_same_and_cross_group():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], visit_time=[0, 1, 0, 1])
+    assert (
+        sp.simplify(dense.covariance(0, 1, form="sum", within="subject") - (tau2 + sigma2 * rho))
+        == 0
+    )
+    assert dense.covariance(1, 2, form="sum") == 0
+
+
 def test_dense_requires_consistent_column_lengths():
     model = _intercept_model()
     with pytest.raises(ModelError):

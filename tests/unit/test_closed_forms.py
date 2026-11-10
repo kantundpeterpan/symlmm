@@ -63,6 +63,27 @@ def test_ar1_uses_two_level_within_coordinate():
     )
 
 
+def test_ar1_within_resolves_group_delta():
+    b0 = sp.Symbol("b0")
+    sigma2, rho = sp.symbols("sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+    i, j = model.indices()
+
+    inside = model.covariance_entry(i, j, within="subject")
+    common = sp.Symbol("g_subject", integer=True)
+    lag = sp.Abs(
+        sp.IndexedBase("visit_time")[common, model.occasion(i, "subject")]
+        - sp.IndexedBase("visit_time")[common, model.occasion(j, "subject")]
+    )
+    assert sp.simplify(inside - sigma2 * rho**lag) == 0
+    assert not inside.has(sp.KroneckerDelta)
+
+
 def test_ar1_nugget_at_zero_lag_only():
     b0 = sp.Symbol("b0")
     sigma2, rho, omega2 = sp.symbols("sigma2 rho omega2", positive=True)

@@ -437,11 +437,19 @@ class LMM(IndexedModel):
         value = (zi.T * term.cov.dense() * zj)[0, 0]
         return value * sp.KroneckerDelta(self.group(i, term.group), self.group(j, term.group))
 
-    def covariance_entry(self, i: Any, j: Any) -> Any:
+    def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
+        """Resolve a factor's delta by placing both rows in one common level."""
+        spec = self._group_spec(within)
+        common = sp.Symbol(f"g_{spec.label.replace(':', '_')}", integer=True)
+        return expr.subs({self.group(i, within): common, self.group(j, within): common})
+
+    def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
         """Return the structured sum-form covariance entry."""
         total = self.residual.entry(i, j, self)
         for term in self.random:
             total += self._random_term_entry(term, i, j)
+        if within is not None and not self._dense:
+            total = self._apply_within(total, i, j, within)
         return total
 
     def mean(
@@ -464,22 +472,24 @@ class LMM(IndexedModel):
         j: Any | None = None,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
         """Return the marginal covariance in the requested form."""
         from .moments import covariance
 
-        return covariance(self, i, j, form)
+        return covariance(self, i, j, form, within)
 
     def variance(
         self,
         i: Any | None = None,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
         """Return the marginal variance vector or entry in the requested form."""
         from .moments import variance
 
-        return variance(self, i, form)
+        return variance(self, i, form, within)
 
     def correlation(
         self,
@@ -487,11 +497,12 @@ class LMM(IndexedModel):
         j: Any | None = None,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
         """Return the marginal correlation in the requested form."""
         from .moments import correlation
 
-        return correlation(self, i, j, form)
+        return correlation(self, i, j, form, within)
 
     def conditional_mean(
         self,
@@ -534,11 +545,12 @@ class LMM(IndexedModel):
         *,
         kind: str,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
         """Return a raw, residual, or conditional variogram entry."""
         from .variogram import variogram
 
-        return variogram(self, i, j, kind, form)
+        return variogram(self, i, j, kind, form, within)
 
     def covariogram(
         self,
@@ -546,11 +558,12 @@ class LMM(IndexedModel):
         j: Any,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
         """Return the covariogram entry Cov(y_i, y_j)."""
         from .variogram import covariogram
 
-        return covariogram(self, i, j, form)
+        return covariogram(self, i, j, form, within)
 
     def blup_mean(
         self,

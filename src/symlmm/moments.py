@@ -35,6 +35,7 @@ def covariance(
     i: Any | None = None,
     j: Any | None = None,
     form: str | Form | None = None,
+    within: str | None = None,
 ) -> Any:
     """Return the marginal covariance."""
     form = require_form(form)
@@ -46,13 +47,16 @@ def covariance(
         matrix = model.matrix_covariance()
         if form is Form.MATRIX:
             return matrix
-        return DualForm(sum=EntryMap(model.covariance_entry), matrix=matrix)
+        return DualForm(
+            sum=EntryMap(lambda a, b: model.covariance_entry(a, b, within)),
+            matrix=matrix,
+        )
     if form is Form.SUM:
-        return model.covariance_entry(i, j)
+        return model.covariance_entry(i, j, within)
     if form is Form.MATRIX:
         return model.matrix_covariance()[i, j]
     return DualForm(
-        sum=model.covariance_entry(i, j),
+        sum=model.covariance_entry(i, j, within),
         matrix=model.matrix_covariance()[i, j],
     )
 
@@ -61,6 +65,7 @@ def variance(
     model: Any,
     i: Any | None = None,
     form: str | Form | None = None,
+    within: str | None = None,
 ) -> Any:
     """Return the marginal variance vector or entry."""
     form = require_form(form)
@@ -71,13 +76,16 @@ def variance(
         vector = sp.matrices.expressions.diagonal.DiagonalOf(model.matrix_covariance())
         if form is Form.MATRIX:
             return vector
-        return DualForm(sum=EntryMap(lambda k: model.covariance_entry(k, k)), matrix=vector)
+        return DualForm(
+            sum=EntryMap(lambda k: model.covariance_entry(k, k, within)),
+            matrix=vector,
+        )
     if form is Form.SUM:
-        return model.covariance_entry(i, i)
+        return model.covariance_entry(i, i, within)
     if form is Form.MATRIX:
         return model.matrix_covariance()[i, i]
     return DualForm(
-        sum=model.covariance_entry(i, i),
+        sum=model.covariance_entry(i, i, within),
         matrix=model.matrix_covariance()[i, i],
     )
 
@@ -87,6 +95,7 @@ def correlation(
     i: Any | None = None,
     j: Any | None = None,
     form: str | Form | None = None,
+    within: str | None = None,
 ) -> Any:
     """Return the marginal correlation."""
     form = require_form(form)
@@ -99,10 +108,10 @@ def correlation(
         if form is Form.MATRIX:
             return corr
         return DualForm(
-            sum=EntryMap(lambda a, b: _correlation_entry(model, a, b)),
+            sum=EntryMap(lambda a, b: _correlation_entry(model, a, b, within)),
             matrix=corr,
         )
-    entry = _correlation_entry(model, i, j)
+    entry = _correlation_entry(model, i, j, within)
     if form is Form.SUM:
         return entry
     if form is Form.MATRIX:
@@ -110,10 +119,10 @@ def correlation(
     return DualForm(sum=entry, matrix=corr[i, j])
 
 
-def _correlation_entry(model: Any, i: Any, j: Any) -> Any:
-    vi = model.covariance_entry(i, i)
-    vj = model.covariance_entry(j, j)
-    return model.covariance_entry(i, j) / sp.sqrt(vi * vj)
+def _correlation_entry(model: Any, i: Any, j: Any, within: str | None = None) -> Any:
+    vi = model.covariance_entry(i, i, within)
+    vj = model.covariance_entry(j, j, within)
+    return model.covariance_entry(i, j, within) / sp.sqrt(vi * vj)
 
 
 def conditional_mean(

@@ -3,7 +3,7 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Scalar, Unstructured
+from symlmm.covariances import AR1, IID, Scalar, Unstructured
 from symlmm.errors import FormArityError, MissingFormError
 from symlmm.forms import DualForm, EntryMap
 from symlmm.model import LMM
@@ -241,3 +241,63 @@ def test_conditional_variance_whole_and_form_errors():
 
     with pytest.raises(FormArityError):
         model.conditional_variance(form="sum")
+
+
+def test_within_resolves_delta_for_same_group():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+    i, j = model.indices()
+
+    general = model.covariance(i, j, form="sum")
+    inside = model.covariance(i, j, form="sum", within="subject")
+
+    assert general.has(sp.KroneckerDelta)
+    assert not inside.has(sp.KroneckerDelta)
+    assert inside != general
+
+
+def test_within_propagates_to_variance_and_correlation():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+    i, j = model.indices()
+
+    variance = model.variance(i, form="sum", within="subject")
+    correlation = model.correlation(i, j, form="sum", within="subject")
+
+    assert not variance.has(sp.KroneckerDelta)
+    assert not correlation.has(sp.KroneckerDelta)
+
+
+def test_within_propagates_to_sum_entry_maps():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+    i, j = model.indices()
+
+    covariance = model.covariance(form="both", within="subject")
+    correlation = model.correlation(form="both", within="subject")
+    variance = model.variance(form="both", within="subject")
+
+    assert isinstance(covariance.sum, EntryMap)
+    assert isinstance(correlation.sum, EntryMap)
+    assert isinstance(variance.sum, EntryMap)
+    assert not covariance.sum[i, j].has(sp.KroneckerDelta)
+    assert not correlation.sum[i, j].has(sp.KroneckerDelta)
+    assert not variance.sum[i].has(sp.KroneckerDelta)
