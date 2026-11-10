@@ -48,6 +48,7 @@ def test_blup_dense_joint_block_matches_explicit_assembly():
     Z = dense.matrix_z()
     G = dense.matrix_g()
     V = dense.matrix_covariance()
+    assert sp.simplify(V - (Z * G * Z.T + dense.matrix_r())) == sp.zeros(4, 4)
     assert Z == sp.Matrix(
         [
             [1, 0, 0, 0],

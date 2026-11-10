@@ -254,6 +254,52 @@ def test_dense_icc_random_slope_evaluates_at_given_coordinate():
     assert not value.has(sp.Indexed)
 
 
+def test_dense_icc_without_coordinate_column_uses_at_values():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
+        residual=IID(var=sigma2),
+        n=2,
+    )
+    dense = model.dense(subject=[0, 0])
+    value = dense.icc(at={"coordinate": 5}, form="sum")
+    assert sp.simplify(value - 26 * tau2 / (26 * tau2 + sigma2)) == 0
+    assert not value.has(sp.Indexed)
+
+
+def test_dense_icc_multiple_slopes_uses_coordinate_mapping():
+    b0 = sp.Symbol("b0")
+    tau0, tau1, tau2, sigma2 = sp.symbols("tau0 tau1 tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"), RandomSlope("dose")),
+                cov=Diagonal([tau0, tau1, tau2]),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+        n=2,
+    )
+    dense = model.dense(subject=[0, 0])
+    value = dense.icc(at={"time": 2, "dose": 3}, form="sum")
+    expected = (tau0 + 4 * tau1 + 9 * tau2) / (tau0 + 4 * tau1 + 9 * tau2 + sigma2)
+    assert sp.simplify(value - expected) == 0
+    assert not value.has(sp.Indexed)
+
+
 def test_dense_occasion_codes_are_within_group():
     b0 = sp.Symbol("b0")
     tau2 = sp.Symbol("tau2", positive=True)

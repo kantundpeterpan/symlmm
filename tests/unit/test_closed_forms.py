@@ -241,3 +241,23 @@ def test_icc_multiple_slopes_require_each_coordinate_value():
     )
     with pytest.raises(ModelError, match="coordinate 'dose'"):
         model.icc(at={"time": 2}, form="sum")
+
+
+@pytest.mark.parametrize("at", [{"coordinate": None}, {"time": None}])
+def test_icc_none_coordinate_value_raises_model_error(at):
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
+        residual=IID(var=sigma2),
+    )
+    with pytest.raises(ModelError, match="coordinate 'time'"):
+        model.icc(at=at, form="sum")

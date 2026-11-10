@@ -148,6 +148,45 @@ def test_blup_joint_block_uses_full_random_dimension():
     assert cross == Z[i, :] * G
 
 
+def test_blup_multiple_grouping_factors_include_joint_and_intercept_blocks():
+    b0 = sp.Symbol("b0")
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    tau_item = sp.Symbol("tau_item", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Unstructured.from_sd_corr([s0, s1], rho_b),
+            ),
+            RandomEffects(group="item", intercept=True, cov=Scalar(tau_item)),
+        ],
+        residual=IID(var=sigma2),
+    )
+    n, q = model.dimensions()
+    assert q == 2 * model.levels("subject") + model.levels("item")
+    G = sp.MatrixSymbol("G", q, q)
+    Z = sp.MatrixSymbol("Z", n, q)
+    y = sp.MatrixSymbol("y", n, 1)
+
+    mean = model.blup_mean(form="matrix")
+    assert mean.shape == (q, 1)
+    expected_mean = G * Z.T * model.matrix_covariance().inverse() * (y - model.matrix_mean())
+    assert mean == expected_mean
+
+    covariance = model.blup_covariance(form="matrix")
+    assert covariance.shape == (q, q)
+
+    i, _ = model.indices()
+    cross = model.blup_cross_covariance(i, form="matrix")
+    assert cross.shape == (1, q)
+    assert cross == Z[i, :] * G
+
+
 def test_blup_requires_form():
     model = _model()
     i, _ = model.indices()

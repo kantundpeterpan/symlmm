@@ -633,12 +633,18 @@ class LMM(IndexedModel):
             raise ModelError("icc requires at={'coordinate': value} or coordinate mapping")
         values: dict[str, Any] = {}
         if at is not None:
-            if "coordinate" in at and self.coordinate_name is not None:
-                values[self.coordinate_name] = at["coordinate"]
-            values.update({key: value for key, value in at.items() if key != "coordinate"})
+            coordinate_value = at.get("coordinate")
+            if coordinate_value is not None and self.coordinate_name is not None:
+                values[self.coordinate_name] = coordinate_value
+            values.update(
+                {
+                    key: value
+                    for key, value in at.items()
+                    if key != "coordinate" and value is not None
+                }
+            )
         random_part = sp.Integer(0)
         for term in self.random:
-            z = term.z(self, 0)
             if self._dense:
                 columns: list[Any] = [sp.Integer(1)] if term.intercept else []
                 for slope in term.slopes:
@@ -649,6 +655,7 @@ class LMM(IndexedModel):
                     columns.append(values[slope.coordinate])
                 z = sp.Matrix(columns)
             else:
+                z = term.z(self, 0)
                 for slope in term.slopes:
                     if slope.coordinate not in values:
                         raise ModelError(
