@@ -646,10 +646,15 @@ git commit -m "feat: add within-group coordinates, spatial gates, and nuggets"
 **Interfaces:**
 - Consumes: `group(i, factor)` level indices, `covariance_entry`.
 - Produces: `covariance_entry(i, j, within=None)`, `covariance(..., within=None)`, `variance(..., within=None)`, `correlation(..., within=None)`, `variogram(..., within=None)`, `covariogram(..., within=None)`.
+- `within` is a same-group assumption for indexable sum-form entries. It is only
+  valid with `form="sum"` and two indices (or one for variance); matrix and both
+  forms reject it with `UnsupportedForm`. The factor name is validated in all
+  modes. Dense mode uses the actual concrete group labels; `within` never
+  overrides them.
 
 - [ ] **Step 1: Write the failing delta-resolution tests**
 
-Append to `tests/unit/test_moments.py`:
+Append to `tests/unit/test_moments.py` (add `UnsupportedForm` to the errors import):
 
 ```python
 def test_within_resolves_delta_for_same_group():
@@ -669,6 +674,22 @@ def test_within_resolves_delta_for_same_group():
     assert general.has(sp.KroneckerDelta)
     assert not inside.has(sp.KroneckerDelta)
     assert inside != general
+
+
+def test_within_rejects_matrix_form_and_invalid_factor():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+    i, j = model.indices()
+    with pytest.raises(UnsupportedForm):
+        model.covariance(i, j, form="matrix", within="subject")
+    with pytest.raises(ModelError):
+        model.covariance(i, j, form="sum", within="missing")
 ```
 
 Add to `tests/unit/test_dense.py`:
@@ -689,6 +710,8 @@ def test_within_dense_same_and_cross_group():
         dense.covariance(0, 1, form="sum", within="subject") - (tau2 + sigma2 * rho)
     ) == 0
     assert dense.covariance(1, 2, form="sum") == 0
+    with pytest.raises(ModelError):
+        dense.covariance(0, 1, form="sum", within="missing")
 ```
 
 - [ ] **Step 2: Implement `within` resolution**
@@ -704,6 +727,8 @@ def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
 
 def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
     """Return the structured sum-form covariance entry."""
+    if within is not None:
+        self._group_spec(within)
     total = self.residual.entry(i, j, self)
     for term in self.random:
         total += self._random_term_entry(term, i, j)
@@ -712,9 +737,21 @@ def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
     return total
 ```
 
-Dense queries already use concrete level codes, so `KroneckerDelta` resolves to
-`1`/`0` without substitution. Do not call `_apply_within` in dense mode; numeric
-substitution of a level code would rewrite unrelated literals.
+Dense queries use concrete level codes, so `KroneckerDelta` resolves to `1`/`0`
+from the actual data. Validate `within` even in dense mode so a typo raises
+`ModelError`; do not substitute numeric level codes, which would rewrite
+unrelated literals. Document that dense `within` cannot override actual groups.
+
+In each public method, after `require_form`:
+
+```python
+if within is not None and form is not Form.SUM:
+    raise UnsupportedForm("within is only defined for sum-form entries")
+```
+
+Apply the same guard in `moments.py` and `variogram.py`. In `_conditional_variogram`,
+validate `within` via `model._group_spec(within)` and use `model._apply_within`
+only when not dense.
 
 Update `LMM.covariance`, `.variance`, `.correlation`, `.variogram`, `.covariogram` to accept `within: str | None = None` and pass it to the module functions.
 
