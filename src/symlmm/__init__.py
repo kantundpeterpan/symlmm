@@ -2,6 +2,7 @@
 
 from importlib.metadata import version
 
+from .blackboard import ModelSymbols
 from .blup import blup_covariance, blup_cross_covariance, blup_mean
 from .constraints import (
     Constraint,
@@ -41,6 +42,7 @@ from .errors import (
     SymlmmError,
     UnresolvedSymbols,
     UnsupportedForm,
+    UnsupportedMoment,
 )
 from .forms import (
     DualForm,
@@ -52,7 +54,7 @@ from .forms import (
 )
 from .model import LMM, IndexedModel
 from .simplify import canonicalize
-from .specs import Crossed, Fixed, Group, Nested, RandomEffects, RandomSlope
+from .specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects, RandomSlope
 from .symbols import observation_index, parameter
 from .variogram import covariogram, variogram
 
@@ -67,6 +69,7 @@ __all__ = [
     "Constraint",
     "CovarianceConstructionError",
     "CovarianceSpec",
+    "Covariate",
     "Crossed",
     "Diagonal",
     "DualForm",
@@ -85,6 +88,7 @@ __all__ = [
     "Matern",
     "MissingFormError",
     "ModelError",
+    "ModelSymbols",
     "Nested",
     "NoConditionalModel",
     "NotDecomposable",
@@ -101,6 +105,7 @@ __all__ = [
     "UnresolvedSymbols",
     "Unstructured",
     "UnsupportedForm",
+    "UnsupportedMoment",
     "__version__",
     "blup_covariance",
     "blup_cross_covariance",
