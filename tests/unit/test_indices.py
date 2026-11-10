@@ -277,6 +277,58 @@ def test_lmm_default_indices_follow_definition_names():
     assert model.group_index != model.occasion_index
 
 
+def test_lmm_without_coordinate_has_no_occasion_index():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    from symlmm.covariances import IID, Scalar
+    from symlmm.model import LMM
+    from symlmm.specs import Fixed, Group, RandomEffects
+
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+    )
+
+    assert model.group_index == Group("subject").index
+    assert model.occasion_index is None
+    assert model.occasion_definition is None
+
+
+def test_lmm_without_group_does_not_fabricate_group_index():
+    b0 = sp.Symbol("b0")
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    from symlmm.covariances import IID
+    from symlmm.model import LMM
+    from symlmm.specs import Fixed
+
+    model = LMM(fixed=Fixed(intercept=b0), random=[], residual=IID(var=sigma2))
+
+    assert model.group_index is None
+    assert model.primary_group_definition is None
+
+
+def test_lmm_uses_registered_definition_for_residual_group():
+    b0 = sp.Symbol("b0")
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+    i = sp.Symbol("i", integer=True)
+    from symlmm.covariances import AR1
+    from symlmm.model import LMM
+    from symlmm.specs import Fixed, Group
+
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(group="subject", coordinate="time", var=sigma2, rho=rho),
+        groups=[Group("subject", index=i)],
+    )
+
+    assert model.group_index is i
+    assert model.primary_group_definition == Group("subject", index=i)
+
+
 def test_lmm_residual_coordinate_supplies_occasion_index():
     b0 = sp.Symbol("b0")
     sigma2 = sp.Symbol("sigma2", positive=True)

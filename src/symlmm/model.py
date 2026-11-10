@@ -55,11 +55,8 @@ def _primary_definition(
     definition: GroupSpec,
     registered: Mapping[str, GroupSpec],
 ) -> GroupSpec:
-    """Return the registered composite spec for `definition`, when present."""
-    candidate = registered.get(definition.name)
-    if isinstance(candidate, (Nested, Crossed)):
-        return candidate
-    return definition
+    """Return the registered definition for `definition`, when present."""
+    return registered.get(definition.name, definition)
 
 
 def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
@@ -348,16 +345,16 @@ class LMM(IndexedModel):
         else:
             primary = None
 
-        group_index = sp.Symbol("i", integer=True) if primary is None else primary.index
-        assert group_index is not None
-        canonical_covariate = self._canonical_covariate(coordinate_name, residual_covariate)
-        occasion_index = canonical_covariate.index
-        assert occasion_index is not None
-        if group_index == occasion_index:
+        group_index: sp.Symbol | None = None if primary is None else primary.index
+        occasion_definition = self._canonical_covariate(coordinate_name, residual_covariate)
+        occasion_index: sp.Symbol | None = (
+            None if occasion_definition is None else occasion_definition.index
+        )
+        if group_index is not None and occasion_index is not None and group_index == occasion_index:
             raise ModelError("group and occasion indices must be distinct")
 
         self.primary_group_definition = primary
-        self.occasion_definition = canonical_covariate
+        self.occasion_definition = occasion_definition
         self.group_index = group_index
         self.occasion_index = occasion_index
 
@@ -373,10 +370,10 @@ class LMM(IndexedModel):
         self,
         coordinate_name: str | None,
         residual_covariate: Covariate | None,
-    ) -> Covariate:
+    ) -> Covariate | None:
         """Return the covariate definition for the model's canonical coordinate."""
         if coordinate_name is None:
-            return Covariate("t")
+            return None
         if residual_covariate is not None and residual_covariate.name == coordinate_name:
             return residual_covariate
         for covariate in self.fixed.covariates():

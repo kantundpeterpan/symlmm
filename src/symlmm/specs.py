@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
-from .errors import CovarianceConstructionError
+from .errors import CovarianceConstructionError, ModelError
 
 if TYPE_CHECKING:
     from .covariances import CovarianceSpec
@@ -90,16 +90,6 @@ class Covariate:
         if self.index is None:
             object.__setattr__(self, "index", sp.Symbol(self.name, integer=True))
 
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, Covariate):
-            return self.name == other.name and self.index == other.index
-        if isinstance(other, str):
-            return self.name == other
-        return NotImplemented
-
-    def __hash__(self) -> int:
-        return hash(self.name)
-
 
 def _coerce_group(value: str | Group) -> Group:
     """Normalize a grouping factor definition."""
@@ -120,8 +110,19 @@ class Fixed:
 
     def __post_init__(self) -> None:
         normalized: dict[Covariate, sp.Expr] = {}
+        definitions: dict[str, Covariate] = {}
         for key, value in (self.slopes or {}).items():
-            normalized[_coerce_covariate(key)] = value
+            covariate = _coerce_covariate(key)
+            existing = definitions.get(covariate.name)
+            if existing is not None and existing.index != covariate.index:
+                raise ModelError(
+                    f"conflicting covariate definitions for {covariate.name!r}: "
+                    f"{existing!r} and {covariate!r}"
+                )
+            if existing is None:
+                definitions[covariate.name] = covariate
+                existing = covariate
+            normalized[existing] = value
         object.__setattr__(self, "slopes", types.MappingProxyType(normalized))
 
     def _slope_items(self) -> tuple[tuple[Covariate, sp.Expr], ...]:

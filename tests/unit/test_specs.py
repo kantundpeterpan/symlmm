@@ -4,6 +4,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import Diagonal
+from symlmm.errors import ModelError
 from symlmm.model import IndexedModel
 from symlmm.specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects, RandomSlope
 
@@ -58,6 +59,31 @@ def test_fixed_slopes_normalize_string_keys():
     assert isinstance(covariate, Covariate)
     assert covariate == Covariate("time")
     assert fixed.names() == ("time",)
+
+
+def test_fixed_slopes_mix_strings_and_definitions():
+    b1, b2 = sp.symbols("b1 b2")
+    t = sp.Symbol("t", integer=True)
+    time = Covariate("time", index=t)
+    fixed = Fixed(slopes={"dose": b1, time: b2})
+
+    assert fixed.covariates() == (Covariate("dose"), time)
+    assert fixed.names() == ("dose", "time")
+
+
+def test_fixed_slopes_dedupe_identical_definitions():
+    b1 = sp.Symbol("b1")
+    fixed = Fixed(slopes={"time": b1, Covariate("time"): b1})
+
+    assert tuple(fixed.slopes) == (Covariate("time"),)
+
+
+def test_fixed_slopes_reject_conflicting_covariate_indices():
+    b1, b2 = sp.symbols("b1 b2")
+    t = sp.Symbol("t", integer=True)
+
+    with pytest.raises(ModelError, match="conflicting covariate definitions"):
+        Fixed(slopes={"time": b1, Covariate("time", index=t): b2})
 
 
 def test_random_effects_normalize_group_and_slope_definitions():
