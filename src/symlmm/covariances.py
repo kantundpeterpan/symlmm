@@ -310,8 +310,9 @@ class AR1(ResidualCovariance):
     ) -> None:
         """Build an AR(1) residual covariance.
 
-        The covariance is ``var * rho**Abs(t_i - t_j)`` within groups, where the
-        coordinate is resolved on the within-group occasion. This is the
+        The covariance is ``var * rho**Abs(t_i - t_j)`` within groups, where
+        ``t_i`` and ``t_j`` are the within-group occasion coordinates of rows
+        ``i`` and ``j``. This is the
         discrete-time AR(1) form when ``coordinate`` is numeric and unit-spaced;
         for irregular or non-unit spacing it is the continuous-time exponential
         covariance with ``rho`` per unit time. ``LMM`` rejects residual/random

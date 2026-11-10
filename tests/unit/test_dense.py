@@ -304,6 +304,79 @@ def test_dense_explicit_occasion_codes_are_ranked_within_group():
     assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
 
 
+def test_dense_explicit_occasion_codes_follow_first_appearance_within_group():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        occasion="occasion",
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=["b", "a", "d", "c"],
+        visit_time=[10, 11, 10, 11],
+    )
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+
+
+def test_dense_explicit_occasion_codes_support_mixed_types():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        occasion="occasion",
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=[2, "a", "b", 1],
+        visit_time=[10, 11, 10, 11],
+    )
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+
+
+def test_dense_random_slope_within_false_uses_global_coordinates():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=sp.Symbol("b0")),
+        random=[
+            RandomSlope(
+                group="subject",
+                coordinate="time",
+                cov=Diagonal([tau2, tau2]),
+                within=False,
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+        occasion="occasion",
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=[0, 0, 0, 0],
+        time=[0, 2, 1, 3],
+    )
+    assert dense.matrix_z() == sp.Matrix(
+        [
+            [1, 0, 0, 0],
+            [1, 2, 0, 0],
+            [0, 0, 1, 1],
+            [0, 0, 1, 3],
+        ]
+    )
+
+
 def test_repeated_dense_accessors_are_consistent():
     b0 = sp.Symbol("b0")
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)

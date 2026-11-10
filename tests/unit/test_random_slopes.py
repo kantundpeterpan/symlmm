@@ -37,6 +37,27 @@ def test_random_slope_closed_form():
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
 
 
+def test_random_slope_within_false_uses_global_coordinate():
+    b0 = sp.Symbol("b0")
+    s0 = sp.Symbol("s0", positive=True)
+    s1 = sp.Symbol("s1", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    term = RandomSlope(
+        group="subject",
+        coordinate="time",
+        cov=_sd_corr(s0, s1, rho_b),
+        within=False,
+    )
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[term],
+        residual=IID(var=sigma2),
+    )
+    i, _ = model.indices()
+    assert term.z(model, i) == sp.Matrix([1, model.coordinate(i, "time")])
+
+
 def test_random_intercept_and_slope_terms_sum():
     b0 = sp.Symbol("b0")
     tau2 = sp.Symbol("tau2", positive=True)

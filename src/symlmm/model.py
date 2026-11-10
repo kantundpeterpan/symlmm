@@ -148,25 +148,33 @@ class IndexedModel:
         if cached is not None:
             return cached
         column = self._occasion_column(spec.name)
-        if column is not None:
-            raw = list(self._observation_column(column))
-        elif self.coordinate_name is not None:
-            raw = list(self._observation_column(self.coordinate_name))
-        else:
-            raw = list(range(self.n))
         groups = self._dense_group_codes(spec)
         result = [0] * self.n
-        for group_code in sorted(set(groups)):
-            positions = [k for k, value in enumerate(groups) if value == group_code]
-            ordered = sorted(positions, key=lambda k: (raw[k], k))
-            code = -1
-            previous: Any = object()
-            for position in ordered:
+        if column is not None:
+            raw = list(self._observation_column(column))
+            per_group: dict[int, dict[Any, int]] = {}
+            for position, group_code in enumerate(groups):
+                mapping = per_group.setdefault(group_code, {})
                 value = raw[position]
-                if value != previous:
-                    code += 1
-                    previous = value
-                result[position] = code
+                if value not in mapping:
+                    mapping[value] = len(mapping)
+                result[position] = mapping[value]
+        else:
+            if self.coordinate_name is not None:
+                raw = list(self._observation_column(self.coordinate_name))
+            else:
+                raw = list(range(self.n))
+            for group_code in sorted(set(groups)):
+                positions = [k for k, value in enumerate(groups) if value == group_code]
+                ordered = sorted(positions, key=lambda k: (raw[k], k))
+                code = -1
+                previous: Any = object()
+                for position in ordered:
+                    value = raw[position]
+                    if value != previous:
+                        code += 1
+                        previous = value
+                    result[position] = code
         self._occasion_cache[spec.label] = result
         return result
 
