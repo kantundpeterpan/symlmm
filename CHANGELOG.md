@@ -46,9 +46,12 @@ indexing layer. There was no separate 0.4.0 release.
 - The primary group is the first random block's `Group`, else the residual
   group definition, else the first registered group. The canonical occasion is
   the residual coordinate `Covariate`, else the fixed-slope `Covariate` with
-  the same name, else a random-slope `Covariate`, else none. Multiple grouping
-  factors restrict the canonical `Y_i` block to the primary group and make
-  cross-factor block covariance `NotDefined`.
+  the same name, else a random-slope `Covariate` when exactly one distinct
+  coordinate exists, else an explicit `coordinate=` name synthesized as
+  `Covariate(name)`, else none. An explicit `coordinate=` conflicting with a
+  residual coordinate raises `ModelError`. Multiple grouping factors restrict
+  the canonical `Y_i` block to the primary group and make cross-factor block
+  covariance `NotDefined`.
 - `Fixed.slopes`, `RandomSlope`, `RandomEffects`, and residual covariances
   accept `Group`/`Covariate` definitions. `RandomSlope(coordinate=...)` takes a
   `Covariate` definition in canonical code; a bare string is accepted only as a

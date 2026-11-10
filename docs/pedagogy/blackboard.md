@@ -95,10 +95,19 @@ The model resolves the canonical indices by fixed precedence:
 1. The primary group is the first `RandomEffects` block's `Group`; otherwise
    the residual covariance's group definition; otherwise the first registered
    grouping definition.
-2. The canonical occasion is the residual covariance's coordinate `Covariate`;
-   otherwise the fixed-effect slope `Covariate` with the same name as the
-   selected model coordinate; otherwise a random-slope `Covariate`; otherwise
-   there is no canonical occasion (`occasion_index is None`).
+2. For the selected coordinate name, the canonical occasion is the residual
+   covariance's coordinate `Covariate`; otherwise the fixed-effect slope
+   `Covariate` with the same name; otherwise a random-slope `Covariate` when
+   exactly one distinct coordinate exists; otherwise, when `coordinate=` was
+   supplied, a synthesized `Covariate(name)`; otherwise there is no canonical
+   occasion (`occasion_index is None`).
+
+The coordinate name is selected from an explicit `LMM(coordinate=...)` when
+supplied, otherwise from the residual coordinate, otherwise from the single
+distinct random-slope coordinate. An explicit `coordinate=` that conflicts
+with a residual coordinate raises `ModelError`. Supplying `coordinate=` never
+produces "no occasion": when no residual, fixed, or random-slope definition
+matches, the model synthesizes `Covariate(coordinate_name)`.
 
 Only the primary group defines `Y_i`, `V_i`, and the canonical group block.
 With multiple grouping factors, `Y_i` is still the primary group's response,

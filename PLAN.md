@@ -133,10 +133,19 @@ indices by fixed precedence:
 - primary group = the first `RandomEffects` block's `Group`; otherwise the
   residual covariance's group definition; otherwise the first registered
   grouping definition.
-- canonical occasion = the residual covariance's coordinate `Covariate`;
-  otherwise the fixed-effect slope `Covariate` with the same name as the
-  selected model coordinate; otherwise a random-slope `Covariate`; otherwise
-  no occasion (`occasion_index is None`).
+- For the selected coordinate name, canonical occasion = the residual
+  covariance's coordinate `Covariate`; otherwise the fixed-effect slope
+  `Covariate` with the same name; otherwise a random-slope `Covariate` when
+  exactly one distinct coordinate exists; otherwise, when `coordinate=` was
+  supplied, a synthesized `Covariate(name)`; otherwise no occasion
+  (`occasion_index is None`).
+
+The coordinate name is selected from an explicit `LMM(coordinate=...)` when
+supplied, otherwise from the residual coordinate, otherwise from the single
+distinct random-slope coordinate. An explicit `coordinate=` that conflicts
+with a residual coordinate raises `ModelError`. Supplying `coordinate=` never
+produces "no occasion": when no residual, fixed, or random-slope definition
+matches, the model synthesizes `Covariate(coordinate_name)`.
 
 Only the primary group defines the canonical `Y_i` block, `V_i`, and the group
 moments. For multiple grouping factors, `Y_i` is still the primary group's
@@ -692,7 +701,11 @@ model.occasion_index is visit.index      # t
 `Group`, `Nested`, `Crossed`, and `Covariate` derive an index symbol from the
 name or factor label when `index=` is omitted. A model rejects equal group and
 occasion index symbols with `ModelError`. The primary group and canonical
-occasion follow the precedence in §3.0. Nested and crossed factors remain
+occasion follow the precedence in §3.0. An explicit `LMM(coordinate=...)`
+selects the coordinate name; if it conflicts with a residual coordinate, the
+model raises `ModelError`. A supplied `coordinate=` never yields "no occasion":
+when no residual, fixed, or random-slope definition matches, the model
+synthesizes `Covariate(coordinate_name)`. Nested and crossed factors remain
 declared in the spec (`sl.Nested(...)`, `sl.Crossed(...)`). With multiple
 grouping factors, the canonical `Y_i` block uses the primary group only; block
 moments that would combine factors, including `group_cross_covariance`, raise
