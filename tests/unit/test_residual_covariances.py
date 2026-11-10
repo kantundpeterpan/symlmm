@@ -4,7 +4,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import IID, CompoundSymmetry, Heteroscedastic, Toeplitz
-from symlmm.errors import CovarianceConstructionError
+from symlmm.errors import CovarianceConstructionError, ModelError
 from symlmm.model import IndexedModel
 from symlmm.specs import Group
 
@@ -153,4 +153,14 @@ def test_heteroscedastic_constraints():
     s0, s1 = sp.symbols("s0 s1", positive=True)
     cov = Heteroscedastic(variances=[s0, s1])
     messages = [constraint.message for constraint in cov.constraints()]
-    assert messages == ["sigma2[0] > 0", "sigma2[1] > 0"]
+    assert messages == ["s0 > 0", "s1 > 0"]
+
+
+def test_heteroscedastic_rejects_concrete_out_of_range():
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    model = _model()
+    cov = Heteroscedastic(variances=[s0, s1])
+    with pytest.raises(ModelError, match="out of range"):
+        cov.entry(2, 2, model)
+    with pytest.raises(ModelError, match="out of range"):
+        cov.entry(2, 0, model)

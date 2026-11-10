@@ -8,6 +8,7 @@ import sympy as sp  # type: ignore[import-untyped]
 
 from .errors import InvalidKindError
 from .forms import DualForm, Form, require_form
+from .moments import covariance as _covariance
 
 _VALID_KINDS = frozenset({"raw", "residual", "conditional"})
 
@@ -31,15 +32,8 @@ def _conditional_variogram(model: Any, i: Any, j: Any) -> Any:
 
 
 def covariogram(model: Any, i: Any, j: Any, form: str | Form | None = None) -> Any:
-    """Return Cov(y_i, y_j)."""
-    form = require_form(form)
-    entry = model.covariance_entry(i, j)
-    if form is Form.SUM:
-        return entry
-    matrix = model.matrix_covariance()[i, j]
-    if form is Form.MATRIX:
-        return matrix
-    return DualForm(sum=entry, matrix=matrix)
+    """Return Cov(y_i, y_j); alias of ``moments.covariance``."""
+    return _covariance(model, i, j, form)
 
 
 def variogram(
