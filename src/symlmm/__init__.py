@@ -52,7 +52,7 @@ from .forms import (
 )
 from .model import LMM, IndexedModel
 from .simplify import canonicalize
-from .specs import Crossed, Fixed, Group, Nested, RandomIntercept, RandomSlope
+from .specs import Crossed, Fixed, Group, Nested, RandomEffects, RandomSlope
 from .symbols import observation_index, parameter
 from .variogram import covariogram, variogram
 
@@ -91,7 +91,7 @@ __all__ = [
     "NotDefined",
     "ParameterConstraintError",
     "RandomCovariance",
-    "RandomIntercept",
+    "RandomEffects",
     "RandomSlope",
     "Relation",
     "ResidualCovariance",

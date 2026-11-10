@@ -92,13 +92,6 @@ class Fixed:
         return value
 
 
-def RandomIntercept(group: str, cov: CovarianceSpec) -> RandomEffects:
-    """Removed random-intercept constructor kept for controller-owned exports."""
-    raise CovarianceConstructionError(
-        "RandomIntercept was removed; use RandomEffects(group=..., intercept=True, cov=...)"
-    )
-
-
 @dataclass(frozen=True)
 class RandomSlope:
     """A random-slope column in a named coordinate; no covariance."""
