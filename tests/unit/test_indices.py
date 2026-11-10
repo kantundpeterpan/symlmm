@@ -232,3 +232,90 @@ def test_explicit_coordinate_may_differ_from_slope_coordinate():
         coordinate="visit_time",
     )
     assert model.coordinate_name == "visit_time"
+
+
+def test_lmm_group_and_occasion_indices_from_definitions():
+    b0, b1 = sp.symbols("b0 b1")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    i = sp.Symbol("i", integer=True)
+    t = sp.Symbol("t", integer=True)
+    from symlmm.covariances import IID, Scalar
+    from symlmm.model import LMM
+    from symlmm.specs import Covariate, Fixed, Group, RandomEffects
+
+    time = Covariate("time", index=t)
+    model = LMM(
+        fixed=Fixed(intercept=b0, slopes={time: b1}),
+        random=[RandomEffects(group=Group("subject", index=i), intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+
+    assert model.group_index is i
+    assert model.occasion_index is t
+    assert model.occasion_definition == time
+
+
+def test_lmm_default_indices_follow_definition_names():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    from symlmm.covariances import IID, Scalar
+    from symlmm.model import LMM
+    from symlmm.specs import Covariate, Fixed, Group, RandomEffects
+
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+
+    assert model.group_index == Group("subject").index
+    assert model.occasion_index == Covariate("time").index
+    assert model.group_index != model.occasion_index
+
+
+def test_lmm_residual_coordinate_supplies_occasion_index():
+    b0 = sp.Symbol("b0")
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+    t = sp.Symbol("t", integer=True)
+    from symlmm.covariances import AR1
+    from symlmm.model import LMM
+    from symlmm.specs import Covariate, Fixed, Group
+
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(
+            group=Group("subject"),
+            coordinate=Covariate("visit_time", index=t),
+            var=sigma2,
+            rho=rho,
+        ),
+    )
+
+    assert model.group_index == Group("subject").index
+    assert model.occasion_index is t
+
+
+def test_lmm_equal_group_and_occasion_indices_raise():
+    b0, b1 = sp.symbols("b0 b1")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    t = sp.Symbol("t", integer=True)
+    from symlmm.covariances import IID, Scalar
+    from symlmm.model import LMM
+    from symlmm.specs import Covariate, Fixed, Group, RandomEffects
+
+    with pytest.raises(ModelError, match="distinct"):
+        LMM(
+            fixed=Fixed(intercept=b0, slopes={Covariate("time", index=t): b1}),
+            random=[
+                RandomEffects(group=Group("subject", index=t), intercept=True, cov=Scalar(tau2))
+            ],
+            residual=IID(var=sigma2),
+            coordinate="time",
+        )

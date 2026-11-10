@@ -6,7 +6,7 @@ import sympy as sp
 from symlmm.covariances import AR1, IID, CompoundSymmetry, Heteroscedastic, Toeplitz
 from symlmm.errors import CovarianceConstructionError, ModelError
 from symlmm.model import IndexedModel
-from symlmm.specs import Group
+from symlmm.specs import Covariate, Group
 
 
 def _model():
@@ -205,3 +205,47 @@ def test_heteroscedastic_rejects_concrete_out_of_range():
         cov.entry(2, 2, model)
     with pytest.raises(ModelError, match="out of range"):
         cov.entry(2, 0, model)
+
+
+def test_ar1_and_toeplitz_accept_definitions():
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+    g = sp.Symbol("g", integer=True)
+    t = sp.Symbol("t", integer=True)
+    subject = Group("subject", index=g)
+    visit = Covariate("visit", index=t)
+
+    ar1 = AR1(group=subject, coordinate=visit, var=sigma2, rho=rho)
+    toeplitz = Toeplitz(
+        group=subject,
+        coordinate=visit,
+        variances=[sigma2],
+        correlations=[rho],
+    )
+
+    assert ar1.group is subject
+    assert ar1.coordinate is visit
+    assert toeplitz.group is subject
+    assert toeplitz.coordinate is visit
+
+    model = _NumericModel()
+    assert ar1.entry(0, 1, model) == sigma2 * rho
+    assert toeplitz.entry(0, 1, model) == sigma2 * rho
+
+
+def test_ar1_and_toeplitz_normalize_string_forms():
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+
+    ar1 = AR1(group="subject", coordinate="time", var=sigma2, rho=rho)
+    toeplitz = Toeplitz(
+        group="subject",
+        coordinate="time",
+        variances=[sigma2],
+        correlations=[rho],
+    )
+
+    assert ar1.group == Group("subject")
+    assert ar1.coordinate == Covariate("time")
+    assert toeplitz.group == Group("subject")
+    assert toeplitz.coordinate == Covariate("time")
