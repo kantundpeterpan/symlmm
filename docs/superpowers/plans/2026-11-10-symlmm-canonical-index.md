@@ -41,7 +41,7 @@
 
 **Interfaces:**
 - Consumes: `LMM`, `RandomEffects`, `Fixed`, `IndexedModel`.
-- Produces: `model.primary_group`, `model.group_count()`, `model.occasion_count()`, `model.group_size(i)`, `model.response_matrix()`, `model.response(i, t=None)`, `model.time_response(t)`, `model.fixed_design(i)`, `model.random_design(i)`, `model.residual_covariance(i)`, `model.random_effect(i)`; `GroupIndex` and `OccasionIndex`.
+- Produces: `IndexSpec`, `model.group_index`, `model.occasion_index`, `model.primary_group`, `model.group_count()`, `model.occasion_count()`, `model.group_size(g)`, `model.response_matrix()`, `model.response(g, t=None)`, `model.time_response(t)`, `model.fixed_design(g)`, `model.random_design(g)`, `model.residual_covariance(g)`, `model.random_effect(g)`.
 
 - [ ] **Step 1: Write the failing canonical symbol tests**
 
@@ -104,20 +104,6 @@ from typing import Any
 import sympy as sp
 
 
-@dataclass(frozen=True)
-class GroupIndex:
-    """Typed group index for response indexing."""
-
-    symbol: sp.Symbol
-
-
-@dataclass(frozen=True)
-class OccasionIndex:
-    """Typed occasion index for response indexing."""
-
-    symbol: sp.Symbol
-
-
 def group_size_symbol(group: Any) -> sp.Symbol:
     """Return the symbolic size of `group`."""
     return sp.Symbol(f"n_{group}", positive=True, integer=True)
@@ -146,6 +132,32 @@ def group_residual(group: Any, size: Any) -> sp.MatrixSymbol:
 def group_coefficients(group: Any, q: int) -> sp.MatrixSymbol:
     """Return the random-effect vector b_group."""
     return sp.MatrixSymbol(f"b_{group}", q, 1)
+```
+
+Add to `src/symlmm/specs.py`:
+
+```python
+@dataclass(frozen=True)
+class IndexSpec:
+    """Canonical group and occasion index symbols."""
+
+    group: sp.Symbol
+    occasion: sp.Symbol
+
+    def __post_init__(self) -> None:
+        if self.group == self.occasion:
+            raise ModelError("group and occasion index symbols must differ")
+```
+
+In `LMM.__init__`, accept `index: IndexSpec | None = None`; store:
+
+```python
+self.index = index or IndexSpec(
+    sp.Symbol("g", integer=True),
+    sp.Symbol("t", integer=True),
+)
+self.group_index = self.index.group
+self.occasion_index = self.index.occasion
 ```
 
 In `LMM`:
@@ -453,8 +465,8 @@ def test_blackboard_occasion_column():
 ```python
 Y: ResponseSymbols       # Y[i] row, Y[:, t] column, Y[i, t] scalar
 b: GroupEffectSymbols    # b[i] vector
-i: GroupIndex
-t: OccasionIndex
+i: sp.Symbol
+t: sp.Symbol
 X: Callable[[Any], Any]
 Z: Callable[[Any], Any]
 R: Callable[[Any], Any]
@@ -462,21 +474,17 @@ G: Any
 beta: sp.Matrix
 ```
 
-`LMM.symbols()` constructs `GroupIndex(sp.Symbol("i", integer=True))` and
-`OccasionIndex(sp.Symbol("t", integer=True))`.
+`LMM.symbols()` sets `i=model.group_index` and `t=model.occasion_index`; no
+index name is hardcoded in the facade.
 
 Implement `ResponseSymbols`:
 
 ```python
-from .canonical import OccasionIndex
-
 class ResponseSymbols:
     def __init__(self, model: LMM) -> None:
         self.model = model
 
     def __getitem__(self, key: Any) -> Any:
-        if isinstance(key, OccasionIndex):
-            return self.model.time_response(key.symbol)
         if isinstance(key, tuple):
             row, column = key
             if row is slice(None):
@@ -484,7 +492,14 @@ class ResponseSymbols:
             if column is slice(None):
                 return self.model.response(row)
             return self.model.response(row, column)
-        return self.model.response(key)
+        if key == self.model.occasion_index:
+            return self.model.time_response(key)
+        if key == self.model.group_index:
+            return self.model.response(key)
+        raise ModelError(
+            "ambiguous response index; use Y[group_index], Y[occasion_index], "
+            "Y[i, :], or Y[:, t]"
+        )
 ```
 
 `GroupEffectSymbols.__getitem__` returns `model.random_effect(group)`.

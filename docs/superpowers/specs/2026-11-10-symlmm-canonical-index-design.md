@@ -40,6 +40,24 @@ For unbalanced panels the matrix `Y` is not rectangular. Group rows `Y_i` and
 scalar entries `Y_{it}` remain defined; occasion columns are defined over the
 groups that actually have that occasion, or are rejected as ragged.
 
+## Model-defined index symbols
+
+The model owns the canonical index symbols; they are not hardcoded in the
+response accessor:
+
+```python
+IndexSpec(group=sp.Symbol("i", integer=True), occasion=sp.Symbol("t", integer=True))
+```
+
+`LMM(..., index=IndexSpec(...))` stores:
+
+- `model.group_index`
+- `model.occasion_index`
+
+If omitted, the model uses default index symbols, but `Y[...]` always dispatches
+against the stored symbols, never against a hardcoded `"t"`. Group and occasion
+symbols must be distinct; equal symbols raise `ModelError`.
+
 ## Public model API
 
 Add canonical group-level and occasion-level methods while retaining the
@@ -98,22 +116,29 @@ of the appropriate group shapes. Dense mode returns concrete matrices.
 ```python
 syms = model.symbols()
 
-syms.Y[i]             # Y_i row vector
-syms.Y[:, t]          # Y_{.t} column vector
+syms.i                # model.group_index
+syms.t                # model.occasion_index
+
+syms.Y[syms.i]        # Y_i row vector
+syms.Y[syms.t]        # Y_{.t} column vector
+syms.Y[i]             # row when i == model.group_index
+syms.Y[t]             # column when t == model.occasion_index
 syms.Y[i, t]          # Y_{it} scalar
-syms.Y[syms.t]        # occasion column, typed index alternative
-syms.b[i]             # b_i vector
-syms.b[i][a]          # component
-syms.X(i)             # X_i matrix
-syms.Z(i)             # Z_i matrix
-syms.R(i)             # R_i matrix
+syms.Y[i, :]          # row slice
+syms.Y[:, t]          # column slice
+
+syms.b[syms.i]        # b_i vector
+syms.b[syms.i][a]     # component
+syms.X(syms.i)        # X_i matrix
+syms.Z(syms.i)        # Z_i matrix
+syms.R(syms.i)        # R_i matrix
 syms.G                # G
 syms.beta             # beta vector
 ```
 
-`syms.i` is a `GroupIndex`; `syms.t` is an `OccasionIndex`. Passing the typed
-occasion index to `syms.Y[...]` returns the column vector. `syms.Y[:, t]` is the
-unambiguous slice form for a plain occasion symbol.
+`Y[t]` is robust when `t` is the model-defined occasion symbol. `Y[0]` is
+ambiguous and raises `ModelError`; use `Y[:, 0]` for a column or `Y[0, :]` for a
+row.
 
 Moments:
 
