@@ -3,11 +3,11 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import AR1, IID, Scalar
-from symlmm.errors import MissingFormError
+from symlmm.covariances import AR1, IID, Diagonal, Scalar
+from symlmm.errors import MissingFormError, ModelError
 from symlmm.model import LMM
 from symlmm.simplify import canonicalize
-from symlmm.specs import Fixed, Group, RandomIntercept
+from symlmm.specs import Fixed, Group, RandomIntercept, RandomSlope
 
 
 def test_random_intercept_closed_form():
@@ -116,3 +116,28 @@ def test_icc_matrix_and_both_forms_return():
 
     assert model.icc(form="matrix") is not None
     assert model.icc(form="both") is not None
+
+
+def test_icc_random_slope_requires_time():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        residual=IID(var=sigma2),
+    )
+    with pytest.raises(ModelError, match="icc requires at"):
+        model.icc(form="sum")
+
+
+def test_icc_random_slope_evaluates_at_given_time():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        residual=IID(var=sigma2),
+    )
+    value = model.icc(at={"time": 2}, form="sum")
+    assert sp.simplify(value - (tau2 + 4 * tau2) / (tau2 + 4 * tau2 + sigma2)) == 0
+    assert not value.has(sp.Indexed)

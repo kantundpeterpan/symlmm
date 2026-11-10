@@ -64,10 +64,32 @@ class IndexedModel:
 
     def group(self, i: Any, factor: str) -> Any:
         """Return the group label for observation `i` and factor `factor`."""
-        if self._dense:
-            return self._observation_value(i, factor)
         spec = self._group_spec(factor)
+        if self._dense:
+            return self._dense_group_codes(spec)[int(i)]
         return sp.IndexedBase(spec.label, shape=(self.n,))[i]
+
+    def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
+        """Return integer codes for the composite label of `spec`."""
+        raw: list[Any]
+        if isinstance(spec, Nested):
+            if spec.label in self._observations:
+                raw = list(self._observation_column(spec.label))
+            else:
+                left = self._observation_column(spec.within)
+                right = self._observation_column(spec.child)
+                raw = [f"{a}:{b}" for a, b in zip(left, right, strict=True)]
+        elif isinstance(spec, Crossed):
+            if spec.label in self._observations:
+                raw = list(self._observation_column(spec.label))
+            else:
+                left = self._observation_column(spec.left)
+                right = self._observation_column(spec.right)
+                raw = [f"{a}:{b}" for a, b in zip(left, right, strict=True)]
+        else:
+            raw = list(self._observation_column(spec.name))
+        codes = {label: code for code, label in enumerate(sorted(set(raw), key=str))}
+        return [codes[label] for label in raw]
 
     def time(self, i: Any, coordinate: str | None = None) -> Any:
         """Return the time or coordinate value for observation `i`."""
@@ -105,6 +127,7 @@ class LMM(IndexedModel):
         residual: ResidualCovariance,
         groups: Sequence[GroupSpec] | None = None,
         n: Any | None = None,
+        time: str | None = None,
     ) -> None:
         self.fixed = fixed
         self.random = tuple(random)
@@ -123,31 +146,53 @@ class LMM(IndexedModel):
             registered.setdefault(term.group, Group(term.group))
         if hasattr(residual, "group"):
             registered.setdefault(residual.group, Group(residual.group))
-        time = getattr(residual, "time", None) or next(
-            (getattr(term, "time", None) for term in self.random if getattr(term, "time", None)),
-            None,
-        )
+        declared: list[str] = []
+        residual_time = getattr(residual, "time", None)
+        if residual_time is not None:
+            declared.append(residual_time)
+        for term in self.random:
+            term_time = getattr(term, "time", None)
+            if term_time is not None:
+                declared.append(term_time)
+        unique = tuple(dict.fromkeys(declared))
+        time_name: str | None
+        if time is not None:
+            conflicts = tuple(name for name in unique if name != time)
+            if conflicts:
+                raise ModelError(
+                    f"time coordinate {time!r} conflicts with term coordinates {conflicts!r}"
+                )
+            time_name = time
+        elif len(unique) > 1:
+            raise ModelError(
+                f"conflicting time coordinates {unique!r}; "
+                "declare one canonical time with LMM(time=...)"
+            )
+        else:
+            time_name = unique[0] if unique else None
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
             groups=tuple(registered.values()),
-            time=time,
+            time=time_name,
             covariates=tuple(fixed.slopes),
         )
 
+    def design(self, i: Any) -> Any:
+        """Return the fixed-effect design row in ``Fixed.names()`` order."""
+        terms = [] if self.fixed.intercept is None else [sp.Integer(1)]
+        terms.extend(self.covariate(i, name) for name in self.fixed.slopes)
+        return sp.Matrix(terms) if terms else sp.zeros(0, 1)
+
     def levels(self, factor: str) -> Any:
-        """Return the symbolic number of levels for a grouping factor."""
+        """Return the number of distinct labels for a grouping factor."""
         spec = self._group_spec(factor)
+        if self._dense:
+            return len(set(self._dense_group_codes(spec)))
         label = spec.label.replace(":", "_")
         return sp.Symbol(f"m_{label}", positive=True, integer=True)
 
     def dimensions(self) -> tuple[Any, Any]:
         """Return observations and total random-coefficient dimension."""
-        if self._dense:
-            q = sum(
-                len(set(self._observation_column(term.group))) * term.cov.dim
-                for term in self.random
-            )
-            return self.n, q
         q = sum(self.levels(term.group) * term.cov.dim for term in self.random)
         return self.n, q
 
@@ -195,12 +240,13 @@ class LMM(IndexedModel):
             return sp.MatrixSymbol("Z", n, q)
         columns = []
         for term in self.random:
-            labels = list(self._observation_column(term.group))
+            labels = self._dense_group_codes(self._group_spec(term.group))
             time_name = getattr(term, "time", None)
-            if time_name is None:
-                times = [0] * len(labels)
-            else:
-                times = list(self._observations.get(time_name, [0] * len(labels)))
+            times = (
+                [self.time(k, time_name) for k in range(self.n)]
+                if time_name is not None
+                else [0] * self.n
+            )
             for level in sorted(set(labels)):
                 for a in range(term.cov.dim):
                     column = []
@@ -225,7 +271,7 @@ class LMM(IndexedModel):
 
         blocks = []
         for term in self.random:
-            labels = sorted(set(self._observation_column(term.group)))
+            labels = sorted(set(self._dense_group_codes(self._group_spec(term.group))))
             blocks.extend([term.cov.dense()] * len(labels))
         if not blocks:
             return sp.zeros(0, 0)
@@ -449,16 +495,28 @@ class LMM(IndexedModel):
         from .forms import DualForm, require_form
 
         form = require_form(form)
+        time_terms = [term for term in self.random if getattr(term, "time", None)]
+        if time_terms and at is None:
+            raise ModelError("icc requires at={'time': value} for time-varying random slopes")
+        canonical = self.time_name
+        time_value = None
+        if at is not None:
+            time_value = at.get("time")
+            if time_value is None and canonical is not None:
+                time_value = at.get(canonical)
+            if time_terms and time_value is None:
+                raise ModelError("icc requires at={'time': value} for time-varying random slopes")
         random_part = sp.Integer(0)
         for term in self.random:
             z_accessor = getattr(term, "z", None)
             z = z_accessor(self, 0) if z_accessor is not None else sp.Matrix([1])
             term_time = getattr(term, "time", None)
-            if at and term_time is not None:
-                key = self.time(0, term_time)
-                z = z.subs({key: at.get("time", key)})
+            if time_value is not None and term_time is not None:
+                z = z.subs({self.time(0, term_time): time_value})
             random_part += (z.T * term.cov.dense() * z)[0, 0]
         residual_part = self.residual.entry(0, 0, self)
+        if time_value is not None and canonical is not None:
+            residual_part = residual_part.subs({self.time(0, canonical): time_value})
         value = random_part / (random_part + residual_part)
         if form.value == "sum":
             return value
