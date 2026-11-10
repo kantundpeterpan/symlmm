@@ -31,7 +31,7 @@ def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
     """Return a total ordering key for a derived-occasion coordinate value."""
     try:
         return (0, sp.default_sort_key(sp.sympify(value)), position)
-    except sp.SympifyError, TypeError:
+    except (sp.SympifyError, TypeError):  # fmt: skip
         return (1, str(value), position)
 
 

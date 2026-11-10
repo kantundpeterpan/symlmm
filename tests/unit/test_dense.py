@@ -95,6 +95,32 @@ def test_dense_random_slope_uses_observation_coordinates():
     )
 
 
+def test_dense_slopes_only_random_effect_uses_observation_coordinates():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=sp.Symbol("b0")),
+        random=[
+            RandomEffects(
+                group="subject",
+                slopes=(RandomSlope("time"),),
+                cov=Scalar(tau2),
+            )
+        ],
+        residual=IID(var=sigma2),
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], time=[0, 2, 1, 3])
+    assert dense.matrix_z() == sp.Matrix(
+        [
+            [0, 0],
+            [2, 0],
+            [0, 1],
+            [0, 3],
+        ]
+    )
+
+
 def test_dense_ar1_matches_observation_lags():
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", positive=True)

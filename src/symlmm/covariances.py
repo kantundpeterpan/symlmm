@@ -333,8 +333,9 @@ class AR1(ResidualCovariance):
         for irregular or non-unit spacing it is the continuous-time exponential
         covariance with ``rho`` per unit time. ``group`` names the grouping
         factor gating the covariance, and ``nugget`` is an optional non-negative
-        zero-lag measurement error. ``LMM`` rejects residual/random coordinate
-        declarations that conflict with the canonical coordinate.
+        zero-lag measurement error. ``LMM`` rejects an explicit canonical
+        coordinate only when it conflicts with a residual-declared coordinate;
+        random-slope coordinates may differ.
         """
         self.group = group
         self.coordinate = coordinate
