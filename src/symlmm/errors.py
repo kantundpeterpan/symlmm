@@ -29,6 +29,10 @@ class ModelError(SymlmmError):
     """Base class for model-level errors."""
 
 
+class InvalidKindError(ModelError, ValueError):
+    """Raised when a variogram `kind` is not 'raw', 'residual', or 'conditional'."""
+
+
 class NotDecomposable(ModelError):
     """Raised when a marginal model has no exact conditional representation."""
 

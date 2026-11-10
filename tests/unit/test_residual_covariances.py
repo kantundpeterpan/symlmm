@@ -126,6 +126,19 @@ def test_compound_symmetry_rejects_small_m_max():
         CompoundSymmetry(group="subject", var=sigma2, rho=rho, m_max=1)
 
 
+def test_toeplitz_rejects_multiple_variances():
+    sigma_a, sigma_b = sp.symbols("sigma_a sigma_b", positive=True)
+    rho = sp.Symbol("rho", real=True)
+
+    with pytest.raises(CovarianceConstructionError, match="exactly one variance"):
+        Toeplitz(
+            group="subject",
+            time="time",
+            variances=[sigma_a, sigma_b],
+            correlations=[rho],
+        )
+
+
 def test_toeplitz_constraints():
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", real=True)

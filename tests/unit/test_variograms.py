@@ -4,7 +4,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import IID, Scalar
-from symlmm.errors import MissingFormError
+from symlmm.errors import InvalidKindError, MissingFormError
 from symlmm.forms import DualForm
 from symlmm.model import LMM
 from symlmm.specs import Fixed, RandomIntercept
@@ -54,8 +54,9 @@ def test_form_is_required():
 def test_invalid_kind_raises():
     model = _model()
     i, j = model.indices()
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidKindError) as excinfo:
         model.variogram(i, j, kind="bogus", form="sum")
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_residual_variogram_formula():

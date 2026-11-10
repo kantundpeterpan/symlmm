@@ -3,11 +3,11 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Scalar
+from symlmm.covariances import IID, Scalar, Unstructured
 from symlmm.errors import FormArityError, MissingFormError
 from symlmm.forms import DualForm, EntryMap
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomIntercept, RandomSlope
 
 
 def _model():
@@ -53,6 +53,50 @@ def test_conditional_mean_entry():
     model = _model()
     i, _ = model.indices()
     assert model.conditional_mean(i, form="sum") is not None
+
+
+def test_conditional_mean_intercept_uses_group_level():
+    model = _model()
+    i, _ = model.indices()
+    entry = model.conditional_mean(i, form="sum")
+
+    indexed = {
+        atom.base.name: atom for atom in entry.atoms(sp.Indexed) if atom.base.name.startswith("b_")
+    }
+    assert set(indexed) == {"b_subject_0"}
+    assert indexed["b_subject_0"].indices[0] == model.group(i, "subject")
+
+    level_0 = entry.subs({i: 0})
+    level_1 = entry.subs({i: 1})
+    assert level_0 != level_1
+
+
+def test_conditional_mean_intercept_and_slope_do_not_collide():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomIntercept(group="subject", cov=Scalar(tau2)),
+            RandomSlope(
+                group="subject",
+                time="time",
+                cov=Unstructured.from_sd_corr([s0, s1], rho_b),
+            ),
+        ],
+        residual=IID(var=sigma2),
+    )
+    i, _ = model.indices()
+    entry = sp.expand(model.conditional_mean(i, form="sum"))
+    bases = {atom.base.name for atom in entry.atoms(sp.Indexed) if atom.base.name.startswith("b_")}
+    assert bases == {"b_subject_0", "b_subject_1"}
+
+    level = model.group(i, "subject")
+    assert entry.coeff(sp.IndexedBase("b_subject_0")[level, 0]) == 1
+    assert entry.coeff(sp.IndexedBase("b_subject_1")[level, 0]) == 1
 
 
 def test_mean_sum_and_matrix_entries():

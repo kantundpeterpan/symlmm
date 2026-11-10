@@ -6,7 +6,7 @@ from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
-from .errors import InvalidFormError
+from .errors import InvalidKindError
 from .forms import DualForm, Form, require_form
 
 _VALID_KINDS = frozenset({"raw", "residual", "conditional"})
@@ -52,7 +52,7 @@ def variogram(
     """Return a raw, residual, or conditional variogram entry."""
     form = require_form(form)
     if kind not in _VALID_KINDS:
-        raise InvalidFormError(f"invalid variogram kind: {kind!r}")
+        raise InvalidKindError(f"invalid variogram kind: {kind!r}")
     if kind == "residual":
         value = _residual_variogram(model, i, j)
     elif kind == "conditional":

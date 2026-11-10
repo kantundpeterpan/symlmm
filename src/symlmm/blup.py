@@ -22,10 +22,9 @@ def blup_mean(model: Any, form: str | Form | None = None) -> Any:
     form = require_form(form)
     if form is Form.SUM:
         raise UnsupportedForm("BLUP mean has no general sum form")
-    n, q = model.dimensions()
-    dense = getattr(model, "_dense", False)
-    G = model.matrix_g() if dense else sp.MatrixSymbol("G", q, q)
-    Z = model.matrix_z() if dense else sp.MatrixSymbol("Z", n, q)
+    n = model.n
+    G = model.matrix_g()
+    Z = model.matrix_z()
     V = model.matrix_covariance()
     y = sp.MatrixSymbol("y", n, 1)
     expression = G * Z.T * _inverse(V) * (y - model.matrix_mean())
@@ -39,11 +38,9 @@ def blup_covariance(model: Any, form: str | Form | None = None) -> Any:
     form = require_form(form)
     if form is Form.SUM:
         raise UnsupportedForm("BLUP covariance has no general sum form")
-    n, q = model.dimensions()
-    dense = getattr(model, "_dense", False)
-    G = model.matrix_g() if dense else sp.MatrixSymbol("G", q, q)
-    Z = model.matrix_z() if dense else sp.MatrixSymbol("Z", n, q)
-    R = model.matrix_r() if dense else sp.MatrixSymbol("R", n, n)
+    G = model.matrix_g()
+    Z = model.matrix_z()
+    R = model.matrix_r()
     expression = _inverse(_inverse(G) + Z.T * _inverse(R) * Z)
     if form is Form.MATRIX:
         return expression
@@ -61,10 +58,8 @@ def blup_cross_covariance(
         raise FormArityError("blup_cross_covariance requires an index")
     if form is Form.SUM:
         raise UnsupportedForm("BLUP cross-covariance has no general sum form")
-    n, q = model.dimensions()
-    dense = getattr(model, "_dense", False)
-    G = model.matrix_g() if dense else sp.MatrixSymbol("G", q, q)
-    Z = model.matrix_z() if dense else sp.MatrixSymbol("Z", n, q)
+    G = model.matrix_g()
+    Z = model.matrix_z()
     expression = Z[i, :] * G
     if form is Form.MATRIX:
         return expression

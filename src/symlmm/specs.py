@@ -99,6 +99,10 @@ class RandomIntercept:
     group: str
     cov: CovarianceSpec
 
+    def __post_init__(self) -> None:
+        if self.cov.dim != 1:
+            raise CovarianceConstructionError("RandomIntercept covariance must be 1x1")
+
 
 @dataclass(frozen=True)
 class RandomSlope:

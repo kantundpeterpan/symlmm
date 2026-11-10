@@ -40,6 +40,26 @@ def test_blup_mean_expression():
     assert result.has(model.matrix_mean())
 
 
+def test_blup_uses_model_matrix_symbols():
+    model = _model()
+    n, q = model.dimensions()
+    G = sp.MatrixSymbol("G", q, q)
+    Z = sp.MatrixSymbol("Z", n, q)
+    R = sp.MatrixSymbol("R", n, n)
+    covariance_symbols = model.matrix_covariance().free_symbols
+
+    mean_symbols = model.blup_mean(form="matrix").free_symbols
+    assert {G, Z} <= mean_symbols
+    assert {G, Z} <= covariance_symbols
+
+    covariance = model.blup_covariance(form="matrix").free_symbols
+    assert {G, Z, R} <= covariance
+
+    i, _ = model.indices()
+    cross = model.blup_cross_covariance(i, form="matrix").free_symbols
+    assert {G, Z} <= cross
+
+
 def test_blup_both_form_returns_dual_form():
     model = _model()
     result = model.blup_mean(form="both")
