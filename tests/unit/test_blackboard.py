@@ -53,6 +53,21 @@ def _random_slope_model() -> LMM:
     )
 
 
+def _two_factor_model() -> LMM:
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    omega2 = sp.Symbol("omega2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(group=Group("subject"), intercept=True, cov=Scalar(tau2)),
+            RandomEffects(group=Group("item"), intercept=True, cov=Scalar(omega2)),
+        ],
+        residual=IID(var=sigma2),
+    )
+
+
 def test_model_symbols_exposes_canonical_indices_and_accessors():
     model = _random_intercept_model()
     syms = model.symbols()
@@ -167,6 +182,19 @@ def test_occasion_column_moments_use_dense_canonical_columns():
     assert syms.Cov(syms.Y[:, t], syms.Y[:, s]) == model.time_covariance(t, s)
 
 
+def test_dense_group_response_requires_concrete_group_labels():
+    model = _random_intercept_model().dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 1])
+    syms = model.symbols()
+
+    assert syms.Y[0, :] == model.response(0)
+    with pytest.raises(NotDefined, match="concrete group label"):
+        syms.Y[syms.i]
+    with pytest.raises(NotDefined, match="concrete group label"):
+        syms.Y[syms.i, :]
+    with pytest.raises(NotDefined, match="concrete group label"):
+        syms.Y[syms.i, 0]
+
+
 def test_random_effect_moments_use_group_covariance():
     model = _random_slope_model()
     syms = model.symbols()
@@ -180,6 +208,30 @@ def test_random_effect_moments_use_group_covariance():
     assert syms.Cov(syms.b[g], syms.b[g]) == G
     assert syms.Cov(syms.b[g], syms.b[h]) == sp.zeros(q, q)
     assert syms.Cov(syms.b[g][0, 0], syms.b[g][1, 0]) == G[0, 1]
+
+
+def test_unknown_random_effect_atoms_are_rejected():
+    model = _random_intercept_model()
+    syms = model.symbols()
+    h = sp.Symbol("h", integer=True)
+    unknown = sp.MatrixSymbol("b_unknown", 1, 1)
+
+    with pytest.raises(ModelError, match="registered"):
+        syms.Var(unknown)
+    with pytest.raises(ModelError, match="registered"):
+        syms.Var(model.random_effect(h))
+
+
+def test_multi_factor_effect_symbols_reject_non_primary_groups():
+    model = _two_factor_model()
+    syms = model.symbols()
+    secondary = sp.Symbol("item", integer=True)
+
+    assert syms.b[syms.i] == model.random_effect(syms.i)
+    with pytest.raises(NotDefined, match="primary"):
+        syms.b[secondary]
+    with pytest.raises(NotDefined, match="primary"):
+        syms.b[Group("item")]
 
 
 def test_response_random_effect_cross_covariance():
@@ -242,6 +294,7 @@ def test_nonlinear_and_vector_combinations_are_rejected():
     syms = model.symbols()
     g = syms.i
     h = sp.Symbol("h", integer=True)
+    coefficient = sp.MatrixSymbol("A", 1, 2)
 
     with pytest.raises(UnsupportedMoment, match="linear"):
         syms.Var(syms.Y[g, 0] ** 2)
@@ -249,6 +302,8 @@ def test_nonlinear_and_vector_combinations_are_rejected():
         syms.Var(syms.Y[g, 0] * syms.Y[g, 1])
     with pytest.raises(UnsupportedMoment, match="vector"):
         syms.Var(syms.Y[g] + syms.Y[h, :])
+    with pytest.raises(UnsupportedMoment, match="matrix coefficients on scalar response atoms"):
+        syms.E(coefficient * syms.Y[g, 0])
     with pytest.raises(UnsupportedMoment, match="given"):
         syms.E(syms.Y[g], given=sp.Symbol("x"))
 

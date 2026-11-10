@@ -2,6 +2,10 @@
 
 Importing this module registers :meth:`LMM.symbols` so the facade can be used
 without editing the controller-owned model module.
+
+The facade delegates moment definitions to the canonical model layer, including
+the private ``_entry_row`` and ``_primary_random_term`` helpers, so covariance
+math stays in one place.
 """
 
 from __future__ import annotations
@@ -124,10 +128,35 @@ class _Term:
 
 
 class ResponseSymbols:
-    """Canonical response symbols ``Y[group]``, ``Y[:, occasion]``, and ``Y[g, t]``."""
+    """Canonical response symbols ``Y[group]``, ``Y[:, occasion]``, and ``Y[g, t]``.
+
+    Dense models require concrete group labels for group-indexed responses;
+    symbolic canonical group indices raise ``NotDefined`` instead of producing
+    empty blocks. Use ``Y[:, t]`` or a concrete row for dense panels.
+    """
 
     def __init__(self, model: LMM) -> None:
         self.model = model
+
+    def _require_group_label(self, group: Any) -> Any:
+        """Return a concrete dense group code, or validate a symbolic model.
+
+        This intentionally reads the private dense flag because group-indexed
+        responses are a dense-only ambiguity, not a public model query.
+        """
+        if not self.model._dense:
+            return group
+        count = self.model.group_count()
+        if (
+            not isinstance(count, int)
+            or not isinstance(group, (int, sp.Integer))
+            or not 0 <= int(group) < count
+        ):
+            raise NotDefined(
+                "dense group response requires a concrete group label; "
+                "use Y[:, t] or a concrete row"
+            )
+        return int(group)
 
     def __getitem__(self, key: Any) -> Any:
         """Dispatch on the model's canonical group and occasion index symbols."""
@@ -138,50 +167,82 @@ class ResponseSymbols:
             if _full_slice(row) and _full_slice(column):
                 return self.model.response_matrix()
             if _full_slice(row):
+                if isinstance(column, slice) and not _full_slice(column):
+                    raise ModelError("response slices must be full slices")
                 return self.model.time_response(column)
-            if _full_slice(column):
-                return self.model.response(row)
-            if isinstance(row, slice) or isinstance(column, slice):
+            if isinstance(row, slice):
                 raise ModelError("response slices must be full slices")
-            return self.model.response(row, column)
+            group = self._require_group_label(row)
+            if _full_slice(column):
+                return self.model.response(group)
+            if isinstance(column, slice):
+                raise ModelError("response slices must be full slices")
+            return self.model.response(group, column)
         if self.model.occasion_index is not None and key == self.model.occasion_index:
             return self.model.time_response(key)
         if self.model.group_index is not None and key == self.model.group_index:
-            return self.model.response(key)
+            return self.model.response(self._require_group_label(key))
         raise ModelError(
             "ambiguous response index; use Y[group_index], Y[occasion_index], Y[i, :], or Y[:, t]"
         )
 
 
 class GroupEffectSymbols:
-    """Group-level random-effect symbols ``b[group]``."""
+    """Group-level random-effect symbols ``b[group]``.
+
+    When multiple random grouping factors exist, only the primary grouping
+    factor has a canonical group-level effect vector.
+    """
 
     def __init__(self, model: LMM) -> None:
         self.model = model
         self._by_expression: dict[Any, Any] = {}
         self._by_group: dict[Any, Any] = {}
+        if model.group_index is not None and model.random:
+            primary = model.random_effect(model.group_index)
+            self._by_expression[primary] = model.group_index
+            self._by_group[model.group_index] = primary
+
+    def _canonical_group(self, group: Any) -> Any:
+        """Normalize a group definition or name to its canonical index symbol."""
+        index = getattr(group, "index", group)
+        name = getattr(group, "name", group)
+        if self.model.group_index is not None and (
+            index == self.model.group_index or name == self.model.primary_group
+        ):
+            return self.model.group_index
+        return index
+
+    def require_moment_group(self, group: Any) -> Any:
+        """Return the canonical group index when it is valid for effect moments."""
+        canonical = self._canonical_group(group)
+        groups = {term.group for term in self.model.random}
+        if len(groups) <= 1:
+            return canonical
+        if canonical == self.model.group_index:
+            return canonical
+        raise NotDefined(
+            f"random-effect moments require the primary group index; {group!r} is not primary"
+        )
 
     def __getitem__(self, group: Any) -> Any:
-        """Return ``b_group`` for a canonical group index."""
+        """Return ``b_group`` for the primary canonical group index."""
+        canonical = self.require_moment_group(group)
         existing = self._by_group.get(group)
         if existing is not None:
             return existing
-        symbol = self.model.random_effect(group)
+        symbol = self.model.random_effect(canonical)
         self._by_group[group] = symbol
-        self._by_expression[symbol] = group
+        self._by_group.setdefault(canonical, symbol)
+        self._by_expression[symbol] = canonical
         return symbol
 
-    def group_of(self, expression: Any) -> Any | None:
-        """Return the group index for a random-effect symbol, when recognized."""
+    def group_of(self, expression: Any) -> Any:
+        """Return the group index for a registered random-effect base."""
         known = self._by_expression.get(expression)
         if known is not None:
-            return known
-        if not isinstance(expression, MatrixSymbol) or not expression.name.startswith("b_"):
-            return None
-        label = expression.name[2:]
-        if self.model.group_index is not None and str(self.model.group_index) == label:
-            return self.model.group_index
-        return sp.Symbol(label, integer=True)
+            return self._canonical_group(known)
+        raise ModelError(f"not a registered random-effect atom: {expression!r}")
 
 
 @dataclass(frozen=True)
@@ -271,13 +332,18 @@ def _response_matrix(symbols: ModelSymbols) -> Any | None:
         return None
 
 
+def _is_effect_base(expression: Any) -> bool:
+    """Return whether `expression` looks like a random-effect base symbol."""
+    return isinstance(expression, MatrixSymbol) and expression.name.startswith("b_")
+
+
 def _match_atom(symbols: ModelSymbols, expr: Any) -> _Atom | None:
     """Return the canonical random atom represented by `expr`, if any."""
     Y = _response_matrix(symbols)
     if isinstance(expr, MatrixElement):
         base = expr.args[0]
-        group = symbols.b.group_of(base)
-        if group is not None:
+        if _is_effect_base(base):
+            group = symbols.b.group_of(base)
             return _Atom("effect_entry", group=group, component=expr.args[1])
         if Y is not None and base == Y:
             return _Atom("entry", group=expr.args[1], occasion=expr.args[2])
@@ -294,8 +360,8 @@ def _match_atom(symbols: ModelSymbols, expr: Any) -> _Atom | None:
             return _Atom("occasion_column", occasion=col_slice[0], orientation="col")
         return _Atom("unsupported", orientation="matrix")
     if isinstance(expr, MatrixSymbol):
-        group = symbols.b.group_of(expr)
-        if group is not None:
+        if _is_effect_base(expr):
+            group = symbols.b.group_of(expr)
             return _Atom("effect_vector", group=group, orientation="col")
         if Y is not None and expr == Y:
             return _Atom("response_matrix", orientation="matrix")
@@ -351,6 +417,10 @@ def _parse_term(symbols: ModelSymbols, term: Any) -> _Term | None:
     after = factors[index + 1 :]
     if matched.orientation == "scalar":
         coefficient = _product(before + after)
+        if _is_matrix(coefficient):
+            raise UnsupportedMoment(
+                "matrix coefficients on scalar response atoms are not supported"
+            )
         if _contains_random(symbols, coefficient):
             raise UnsupportedMoment("moment engine supports linear expressions only")
         return _Term(coefficient, matched, "scalar")
@@ -397,7 +467,7 @@ def _given_group(symbols: ModelSymbols, given: Any) -> Any | None:
         return None
     atom = _match_atom(symbols, given)
     if atom is not None and atom.kind == "effect_vector":
-        return atom.group
+        return symbols.b.require_moment_group(atom.group)
     raise UnsupportedMoment("given must be a single group random-effect vector b[g]")
 
 
