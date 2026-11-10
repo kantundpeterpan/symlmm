@@ -22,13 +22,13 @@ def test_nested_and_crossed_labels_feed_sum_form():
         groups=(Nested("visit", within="subject"), Crossed("subject", "item")),
     )
     i, j = model.indices()
-    assert model.group(i, "visit").base == sp.IndexedBase("subject:visit", shape=(model.n,))
-    assert model.group(i, "item").base == sp.IndexedBase("subject:item", shape=(model.n,))
+    assert model.group(i, "visit").base == sp.IndexedBase("g_subject_visit", shape=(model.n,))
+    assert model.group(i, "item").base == sp.IndexedBase("g_subject_item", shape=(model.n,))
 
     entry = model.covariance_entry(i, j)
     labels = {indexed.base.name for indexed in entry.atoms(sp.Indexed)}
-    assert "subject:visit" in labels
-    assert "subject:item" in labels
+    assert "g_subject_visit" in labels
+    assert "g_subject_item" in labels
     expected = (
         tau_v * sp.KroneckerDelta(model.group(i, "visit"), model.group(j, "visit"))
         + tau_x * sp.KroneckerDelta(model.group(i, "item"), model.group(j, "item"))

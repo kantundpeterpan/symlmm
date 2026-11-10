@@ -3,8 +3,8 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Scalar, Unstructured
-from symlmm.errors import FormArityError, MissingFormError
+from symlmm.covariances import AR1, IID, Scalar, Unstructured
+from symlmm.errors import FormArityError, MissingFormError, ModelError, UnsupportedForm
 from symlmm.forms import DualForm, EntryMap
 from symlmm.model import LMM
 from symlmm.specs import Fixed, RandomIntercept, RandomSlope
@@ -83,7 +83,7 @@ def test_conditional_mean_intercept_and_slope_do_not_collide():
             RandomIntercept(group="subject", cov=Scalar(tau2)),
             RandomSlope(
                 group="subject",
-                time="time",
+                coordinate="time",
                 cov=Unstructured.from_sd_corr([s0, s1], rho_b),
             ),
         ],
@@ -241,3 +241,59 @@ def test_conditional_variance_whole_and_form_errors():
 
     with pytest.raises(FormArityError):
         model.conditional_variance(form="sum")
+
+
+def _within_model():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+
+
+def test_within_resolves_delta_for_same_group():
+    model = _within_model()
+    i, j = model.indices()
+
+    general = model.covariance(i, j, form="sum")
+    inside = model.covariance(i, j, form="sum", within="subject")
+
+    assert general.has(sp.KroneckerDelta)
+    assert not inside.has(sp.KroneckerDelta)
+    assert inside != general
+
+
+def test_within_propagates_to_variance_and_correlation():
+    model = _within_model()
+    i, j = model.indices()
+
+    variance = model.variance(i, form="sum", within="subject")
+    correlation = model.correlation(i, j, form="sum", within="subject")
+
+    assert not variance.has(sp.KroneckerDelta)
+    assert not correlation.has(sp.KroneckerDelta)
+
+
+def test_within_rejects_non_sum_forms():
+    model = _within_model()
+    i, j = model.indices()
+
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.covariance(i, j, form="matrix", within="subject")
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.covariance(i, j, form="both", within="subject")
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.variance(i, form="matrix", within="subject")
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.correlation(i, j, form="matrix", within="subject")
+
+
+def test_within_unknown_factor_raises_model_error():
+    model = _within_model()
+    i, j = model.indices()
+
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.covariance(i, j, form="sum", within="missing")

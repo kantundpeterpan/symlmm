@@ -106,11 +106,12 @@ class RandomIntercept:
 
 @dataclass(frozen=True)
 class RandomSlope:
-    """Random slope term with a 2x2 covariance."""
+    """Random slope term in a named coordinate."""
 
     group: str
-    time: str
+    coordinate: str
     cov: CovarianceSpec
+    within: bool = True
 
     def __post_init__(self) -> None:
         if self.cov.dim != 2:
@@ -118,4 +119,5 @@ class RandomSlope:
 
     def z(self, model: IndexedModel, i: Any) -> sp.Matrix:
         """Return the random-effect design row for observation `i`."""
-        return sp.Matrix([1, model.time(i, self.time)])
+        value = model.coordinate(i, self.coordinate, within=self.group if self.within else None)
+        return sp.Matrix([1, value])

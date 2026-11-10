@@ -1,4 +1,11 @@
-"""Model base classes and index accessors."""
+"""Model base classes and index accessors.
+
+Index model A (temporary): ``i`` is only the observation-row cursor. Group
+levels ``g`` and within-group occasions ``k`` are distinct structural index
+spaces; coordinates live on ``G x K`` as ``X[g, k]``. The full two-level
+``(group, occasion)`` response index redesign is tracked in issue #1:
+https://github.com/kantundpeterpan/symlmm/issues/1
+"""
 
 from __future__ import annotations
 
@@ -31,13 +38,18 @@ class IndexedModel:
         *,
         n: Any,
         groups: Sequence[GroupSpec] = (),
-        time: str | None = None,
+        coordinate: str | None = None,
+        occasion: str | Mapping[str, str] | None = None,
         covariates: Sequence[str] = (),
     ) -> None:
         self.n = n
         self.groups = tuple(groups)
-        self.time_name = time
+        self.coordinate_name = coordinate
+        self.occasion_names = occasion
         self.covariates = tuple(covariates)
+        self._coordinate_cache: dict[tuple[str, str], dict[tuple[int, int], Any]] = {}
+        self._group_cache: dict[str, list[int]] = {}
+        self._occasion_cache: dict[str, list[int]] = {}
         self._i = observation_index("i")
         self._j = observation_index("j")
 
@@ -63,14 +75,45 @@ class IndexedModel:
         return sp.sympify(self._observation_column(name)[int(i)])
 
     def group(self, i: Any, factor: str) -> Any:
-        """Return the group label for observation `i` and factor `factor`."""
+        """Return the group-level index for row `i` and factor `factor`."""
         spec = self._group_spec(factor)
         if self._dense:
             return self._dense_group_codes(spec)[int(i)]
-        return sp.IndexedBase(spec.label, shape=(self.n,))[i]
+        label = spec.label.replace(":", "_")
+        return sp.IndexedBase(f"g_{label}", shape=(self.n,))[i]
+
+    def occasion(self, i: Any, factor: str) -> Any:
+        """Return the within-group occasion index for row `i` and factor `factor`."""
+        spec = self._group_spec(factor)
+        if self._dense:
+            return self._dense_occasion_codes(spec)[int(i)]
+        label = spec.label.replace(":", "_")
+        return sp.IndexedBase(f"k_{label}", shape=(self.n,))[i]
+
+    def coordinate(
+        self,
+        i: Any,
+        name: str | None = None,
+        within: str | None = None,
+    ) -> Any:
+        """Return a row coordinate, or ``X[group(i), occasion(i)]`` when within."""
+        selected = self.coordinate_name if name is None else name
+        if selected is None:
+            raise ModelError("no coordinate name; pass coordinate=... or coordinate(i, name)")
+        if within is None:
+            if self._dense:
+                return self._observation_value(i, selected)
+            return sp.IndexedBase(selected, shape=(self.n,))[i]
+        spec = self._group_spec(within)
+        if self._dense:
+            return self._nested_coordinate_value(i, selected, spec)
+        return sp.IndexedBase(selected)[self.group(i, within), self.occasion(i, within)]
 
     def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
         """Return integer codes for the composite label of `spec`."""
+        cached = self._group_cache.get(spec.label)
+        if cached is not None:
+            return cached
         raw: list[Any]
         if isinstance(spec, Nested):
             if spec.label in self._observations:
@@ -89,17 +132,72 @@ class IndexedModel:
         else:
             raw = list(self._observation_column(spec.name))
         codes = {label: code for code, label in enumerate(sorted(set(raw), key=str))}
-        return [codes[label] for label in raw]
+        result = [codes[label] for label in raw]
+        self._group_cache[spec.label] = result
+        return result
 
-    def time(self, i: Any, coordinate: str | None = None) -> Any:
-        """Return the time or coordinate value for observation `i`."""
-        if coordinate is None:
-            name = self.time_name if self.time_name is not None else "t"
+    def _occasion_column(self, factor: str) -> str | None:
+        """Return the explicit occasion column for `factor`, if configured."""
+        if isinstance(self.occasion_names, Mapping):
+            return self.occasion_names.get(factor)
+        return self.occasion_names
+
+    def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
+        """Return integer occasion codes within each group for `spec`."""
+        cached = self._occasion_cache.get(spec.label)
+        if cached is not None:
+            return cached
+        column = self._occasion_column(spec.name)
+        groups = self._dense_group_codes(spec)
+        result = [0] * self.n
+        if column is not None:
+            raw = list(self._observation_column(column))
+            per_group: dict[int, dict[Any, int]] = {}
+            for position, group_code in enumerate(groups):
+                mapping = per_group.setdefault(group_code, {})
+                value = raw[position]
+                if value not in mapping:
+                    mapping[value] = len(mapping)
+                result[position] = mapping[value]
         else:
-            name = coordinate
-        if self._dense:
-            return self._observation_value(i, name)
-        return sp.IndexedBase(name, shape=(self.n,))[i]
+            if self.coordinate_name is not None:
+                raw = list(self._observation_column(self.coordinate_name))
+            else:
+                raw = list(range(self.n))
+            for group_code in sorted(set(groups)):
+                positions = [k for k, value in enumerate(groups) if value == group_code]
+                ordered = sorted(positions, key=lambda k: (raw[k], k))
+                code = -1
+                previous: Any = object()
+                for position in ordered:
+                    value = raw[position]
+                    if value != previous:
+                        code += 1
+                        previous = value
+                    result[position] = code
+        self._occasion_cache[spec.label] = result
+        return result
+
+    def _nested_coordinate_value(self, i: Any, name: str, spec: GroupSpec) -> Any:
+        """Return a dense coordinate validated as constant within group/occasion."""
+        key = (name, spec.label)
+        mapping = self._coordinate_cache.get(key)
+        if mapping is None:
+            mapping = {}
+            groups = self._dense_group_codes(spec)
+            occasions = self._dense_occasion_codes(spec)
+            for k in range(self.n):
+                pair = (groups[k], occasions[k])
+                value = self._observation_value(k, name)
+                previous = mapping.get(pair, value)
+                if previous != value:
+                    raise ModelError(
+                        f"coordinate {name!r} is not constant within {spec.label!r}: "
+                        f"({pair[0]}, {pair[1]}) has {previous!r} and {value!r}"
+                    )
+                mapping[pair] = value
+            self._coordinate_cache[key] = mapping
+        return mapping[(self.group(i, spec.name), self.occasion(i, spec.name))]
 
     def covariate(self, i: Any, name: str) -> Any:
         """Return a covariate value for observation `i`."""
@@ -108,12 +206,10 @@ class IndexedModel:
         return sp.IndexedBase(name, shape=(self.n,))[i]
 
     def design(self, i: Any) -> Any:
-        """Return the fixed-effect design row `[1, time, covariates...]`."""
-        terms = [1]
-        if self.time_name is not None:
-            terms.append(self.time(i))
-        terms.extend(self.covariate(i, name) for name in self.covariates if name != self.time_name)
-        return sp.Matrix(terms)
+        """Return the fixed-effect design row `[coordinate, covariates...]`."""
+        terms = [] if self.coordinate_name is None else [self.coordinate(i)]
+        terms.extend(self.covariate(i, name) for name in self.covariates)
+        return sp.Matrix(terms) if terms else sp.zeros(0, 1)
 
 
 class LMM(IndexedModel):
@@ -127,7 +223,8 @@ class LMM(IndexedModel):
         residual: ResidualCovariance,
         groups: Sequence[GroupSpec] | None = None,
         n: Any | None = None,
-        time: str | None = None,
+        coordinate: str | None = None,
+        occasion: str | Mapping[str, str] | None = None,
     ) -> None:
         self.fixed = fixed
         self.random = tuple(random)
@@ -144,36 +241,38 @@ class LMM(IndexedModel):
                 )
         for term in self.random:
             registered.setdefault(term.group, Group(term.group))
-        if hasattr(residual, "group"):
-            registered.setdefault(residual.group, Group(residual.group))
+        residual_group = getattr(residual, "group", None)
+        if residual_group is not None:
+            registered.setdefault(residual_group, Group(residual_group))
         declared: list[str] = []
-        residual_time = getattr(residual, "time", None)
-        if residual_time is not None:
-            declared.append(residual_time)
+        residual_coordinate = getattr(residual, "coordinate", None)
+        if residual_coordinate is not None:
+            declared.append(residual_coordinate)
         for term in self.random:
-            term_time = getattr(term, "time", None)
-            if term_time is not None:
-                declared.append(term_time)
+            term_coordinate = getattr(term, "coordinate", None)
+            if term_coordinate is not None:
+                declared.append(term_coordinate)
         unique = tuple(dict.fromkeys(declared))
-        time_name: str | None
-        if time is not None:
-            conflicts = tuple(name for name in unique if name != time)
+        coordinate_name: str | None
+        if coordinate is not None:
+            conflicts = tuple(name for name in unique if name != coordinate)
             if conflicts:
                 raise ModelError(
-                    f"time coordinate {time!r} conflicts with term coordinates {conflicts!r}"
+                    f"coordinate {coordinate!r} conflicts with term coordinates {conflicts!r}"
                 )
-            time_name = time
+            coordinate_name = coordinate
         elif len(unique) > 1:
             raise ModelError(
-                f"conflicting time coordinates {unique!r}; "
-                "declare one canonical time with LMM(time=...)"
+                f"conflicting coordinates {unique!r}; "
+                "declare one canonical coordinate with LMM(coordinate=...)"
             )
         else:
-            time_name = unique[0] if unique else None
+            coordinate_name = unique[0] if unique else None
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
             groups=tuple(registered.values()),
-            time=time_name,
+            coordinate=coordinate_name,
+            occasion=occasion,
             covariates=tuple(fixed.slopes),
         )
 
@@ -213,6 +312,9 @@ class LMM(IndexedModel):
         dense.__dict__ = self.__dict__.copy()
         dense._observations = data
         dense._dense = True
+        dense._coordinate_cache = {}
+        dense._group_cache = {}
+        dense._occasion_cache = {}
         dense.n = lengths.pop()
         return dense
 
@@ -241,22 +343,26 @@ class LMM(IndexedModel):
         columns = []
         for term in self.random:
             labels = self._dense_group_codes(self._group_spec(term.group))
-            time_name = getattr(term, "time", None)
-            times = (
-                [self.time(k, time_name) for k in range(self.n)]
-                if time_name is not None
+            coordinate_name = getattr(term, "coordinate", None)
+            within = getattr(term, "within", False)
+            values = (
+                [
+                    self.coordinate(k, coordinate_name, within=term.group if within else None)
+                    for k in range(self.n)
+                ]
+                if coordinate_name is not None
                 else [0] * self.n
             )
             for level in sorted(set(labels)):
                 for a in range(term.cov.dim):
                     column = []
-                    for label, t in zip(labels, times):
+                    for label, value in zip(labels, values):
                         if label != level:
                             column.append(0)
                         elif term.cov.dim == 1:
                             column.append(1)
                         else:
-                            column.append(1 if a == 0 else t)
+                            column.append(1 if a == 0 else value)
                     columns.append(sp.Matrix(column))
         if not columns:
             return sp.zeros(self.n, 0)
@@ -339,11 +445,26 @@ class LMM(IndexedModel):
         value = (zi.T * term.cov.dense() * zj)[0, 0]
         return value * sp.KroneckerDelta(self.group(i, term.group), self.group(j, term.group))
 
-    def covariance_entry(self, i: Any, j: Any) -> Any:
-        """Return the structured sum-form covariance entry."""
+    def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
+        """Resolve a factor's delta by placing both rows in one common level."""
+        spec = self._group_spec(within)
+        common = sp.Symbol(f"g_{spec.label.replace(':', '_')}", integer=True)
+        return expr.subs({self.group(i, within): common, self.group(j, within): common})
+
+    def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
+        """Return the structured sum-form covariance entry.
+
+        ``within`` validates and resolves the named factor's delta in symbolic
+        mode. Dense models keep their actual concrete level codes; ``within``
+        cannot override them.
+        """
+        if within is not None:
+            self._group_spec(within)
         total = self.residual.entry(i, j, self)
         for term in self.random:
             total += self._random_term_entry(term, i, j)
+        if within is not None and not self._dense:
+            total = self._apply_within(total, i, j, within)
         return total
 
     def mean(
@@ -366,22 +487,32 @@ class LMM(IndexedModel):
         j: Any | None = None,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
-        """Return the marginal covariance in the requested form."""
+        """Return the marginal covariance in the requested form.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .moments import covariance
 
-        return covariance(self, i, j, form)
+        return covariance(self, i, j, form, within)
 
     def variance(
         self,
         i: Any | None = None,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
-        """Return the marginal variance vector or entry in the requested form."""
+        """Return the marginal variance vector or entry in the requested form.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .moments import variance
 
-        return variance(self, i, form)
+        return variance(self, i, form, within)
 
     def correlation(
         self,
@@ -389,11 +520,16 @@ class LMM(IndexedModel):
         j: Any | None = None,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
-        """Return the marginal correlation in the requested form."""
+        """Return the marginal correlation in the requested form.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .moments import correlation
 
-        return correlation(self, i, j, form)
+        return correlation(self, i, j, form, within)
 
     def conditional_mean(
         self,
@@ -436,11 +572,16 @@ class LMM(IndexedModel):
         *,
         kind: str,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
-        """Return a raw, residual, or conditional variogram entry."""
+        """Return a raw, residual, or conditional variogram entry.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .variogram import variogram
 
-        return variogram(self, i, j, kind, form)
+        return variogram(self, i, j, kind, form, within)
 
     def covariogram(
         self,
@@ -448,11 +589,16 @@ class LMM(IndexedModel):
         j: Any,
         *,
         form: str | Form | None = None,
+        within: str | None = None,
     ) -> Any:
-        """Return the covariogram entry Cov(y_i, y_j)."""
+        """Return the covariogram entry Cov(y_i, y_j).
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .variogram import covariogram
 
-        return covariogram(self, i, j, form)
+        return covariogram(self, i, j, form, within)
 
     def blup_mean(
         self,
@@ -495,31 +641,37 @@ class LMM(IndexedModel):
         from .forms import DualForm, require_form
 
         form = require_form(form)
-        time_terms = [term for term in self.random if getattr(term, "time", None)]
-        if time_terms and at is None:
-            raise ModelError("icc requires at={'time': value} for time-varying random slopes")
-        canonical = self.time_name
-        time_value = None
+        coordinate_terms = [term for term in self.random if getattr(term, "coordinate", None)]
+        if coordinate_terms and at is None:
+            raise ModelError(
+                "icc requires at={'coordinate': value} for coordinate-varying random slopes"
+            )
+        canonical = self.coordinate_name
+        coordinate_value = None
         if at is not None:
-            time_value = at.get("time")
-            if time_value is None and canonical is not None:
-                time_value = at.get(canonical)
-            if time_terms and time_value is None:
-                raise ModelError("icc requires at={'time': value} for time-varying random slopes")
+            coordinate_value = at.get("coordinate")
+            if coordinate_value is None and canonical is not None:
+                coordinate_value = at.get(canonical)
+            if coordinate_terms and coordinate_value is None:
+                raise ModelError(
+                    "icc requires at={'coordinate': value} for coordinate-varying random slopes"
+                )
         random_part = sp.Integer(0)
         for term in self.random:
             z_accessor = getattr(term, "z", None)
             z = z_accessor(self, 0) if z_accessor is not None else sp.Matrix([1])
-            term_time = getattr(term, "time", None)
-            if time_value is not None and term_time is not None:
+            term_coordinate = getattr(term, "coordinate", None)
+            within = getattr(term, "within", False)
+            if coordinate_value is not None and term_coordinate is not None:
                 if self._dense:
-                    z = sp.Matrix([z[0], time_value])
+                    z = sp.Matrix([z[0], coordinate_value])
                 else:
-                    z = z.subs({self.time(0, term_time): time_value})
+                    key = self.coordinate(0, term_coordinate, within=term.group if within else None)
+                    z = z.subs({key: coordinate_value})
             random_part += (z.T * term.cov.dense() * z)[0, 0]
         residual_part = self.residual.entry(0, 0, self)
-        if time_value is not None and canonical is not None and not self._dense:
-            residual_part = residual_part.subs({self.time(0, canonical): time_value})
+        if coordinate_value is not None and canonical is not None and not self._dense:
+            residual_part = residual_part.subs({self.coordinate(0, canonical): coordinate_value})
         value = random_part / (random_part + residual_part)
         if form.value == "sum":
             return value

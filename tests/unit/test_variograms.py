@@ -3,8 +3,8 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Scalar
-from symlmm.errors import InvalidKindError, MissingFormError
+from symlmm.covariances import AR1, IID, Scalar
+from symlmm.errors import InvalidKindError, MissingFormError, ModelError, UnsupportedForm
 from symlmm.forms import DualForm
 from symlmm.model import LMM
 from symlmm.specs import Fixed, RandomIntercept
@@ -18,6 +18,17 @@ def _model():
         fixed=Fixed(intercept=b0),
         random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
         residual=IID(var=sigma2),
+    )
+
+
+def _ar1_model():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
     )
 
 
@@ -121,6 +132,54 @@ def test_covariogram_matrix_form_matches_covariance():
     model = _model()
     i, j = model.indices()
     assert model.covariogram(i, j, form="matrix").dummy_eq(model.covariance(i, j, form="matrix"))
+
+
+def test_within_resolves_deltas_in_variogram_kinds():
+    model = _ar1_model()
+    i, j = model.indices()
+
+    residual = model.variogram(i, j, kind="residual", form="sum", within="subject")
+    conditional = model.variogram(i, j, kind="conditional", form="sum", within="subject")
+
+    assert not residual.has(sp.KroneckerDelta)
+    assert not conditional.has(sp.KroneckerDelta)
+
+
+def test_within_resolves_deltas_in_raw_variogram():
+    model = _ar1_model()
+    i, j = model.indices()
+    value = model.variogram(i, j, kind="raw", form="sum", within="subject")
+    assert not value.has(sp.KroneckerDelta)
+
+
+def test_covariogram_within_matches_covariance():
+    model = _ar1_model()
+    i, j = model.indices()
+    covariogram = model.covariogram(i, j, form="sum", within="subject")
+    covariance = model.covariance(i, j, form="sum", within="subject")
+    assert sp.simplify(covariogram - covariance) == 0
+
+
+def test_within_rejects_non_sum_forms():
+    model = _ar1_model()
+    i, j = model.indices()
+
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.variogram(i, j, kind="residual", form="matrix", within="subject")
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.covariogram(i, j, form="both", within="subject")
+
+
+def test_within_unknown_factor_raises_model_error():
+    model = _ar1_model()
+    i, j = model.indices()
+
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.variogram(i, j, kind="residual", form="sum", within="missing")
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.variogram(i, j, kind="conditional", form="sum", within="missing")
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.covariogram(i, j, form="sum", within="missing")
 
 
 def test_covariogram_delegates_to_covariance():

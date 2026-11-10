@@ -33,15 +33,82 @@ def test_ar1_residual_closed_form():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[],
-        residual=AR1(group="subject", time="time", var=sigma2, rho=rho),
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
     )
     i, j = model.indices()
+    inside_i = model.coordinate(i, "visit_time", within="subject")
+    inside_j = model.coordinate(j, "visit_time", within="subject")
     expected = (
         sigma2
-        * rho ** sp.Abs(model.time(i) - model.time(j))
+        * rho ** sp.Abs(inside_i - inside_j)
         * sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject"))
     )
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
+
+
+def test_ar1_uses_two_level_within_coordinate():
+    b0 = sp.Symbol("b0")
+    sigma2, rho = sp.symbols("sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+    )
+    i, j = model.indices()
+    inside = model.coordinate(i, "visit_time", within="subject")
+    entry = model.residual.entry(i, j, model)
+    assert inside in entry.atoms(sp.Indexed)
+    assert sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject")) in entry.atoms(
+        sp.KroneckerDelta
+    )
+
+
+def test_ar1_within_resolves_group_delta():
+    b0 = sp.Symbol("b0")
+    sigma2, rho = sp.symbols("sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+    )
+    i, j = model.indices()
+
+    inside = model.covariance_entry(i, j, within="subject")
+    common = sp.Symbol("g_subject", integer=True)
+    lag = sp.Abs(
+        sp.IndexedBase("visit_time")[common, model.occasion(i, "subject")]
+        - sp.IndexedBase("visit_time")[common, model.occasion(j, "subject")]
+    )
+    assert sp.simplify(inside - sigma2 * rho**lag) == 0
+    assert not inside.has(sp.KroneckerDelta)
+
+
+def test_ar1_nugget_at_zero_lag_only():
+    b0 = sp.Symbol("b0")
+    sigma2, rho, omega2 = sp.symbols("sigma2 rho omega2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[],
+        residual=AR1(
+            group="subject",
+            coordinate="visit_time",
+            var=sigma2,
+            rho=rho,
+            nugget=omega2,
+        ),
+        coordinate="visit_time",
+        n=2,
+    )
+    dense = model.dense(subject=[0, 0], visit_time=[0, 1])
+    assert sp.simplify(dense.covariance(0, 0, form="sum")) == sigma2 + omega2
+    assert sp.simplify(dense.covariance(0, 1, form="sum")) == sigma2 * rho
+
+
+def test_nugget_constraint():
+    sigma2, rho, omega2 = sp.symbols("sigma2 rho omega2", positive=True)
+    cov = AR1(group="subject", coordinate="x", var=sigma2, rho=rho, nugget=omega2)
+    assert any(constraint.message == "omega2 >= 0" for constraint in cov.constraints())
 
 
 def test_icc_for_random_intercept():
@@ -61,19 +128,18 @@ def test_canonicalize_expands_and_simplifies():
     assert canonicalize((x + 1) ** 2 - x**2) == 2 * x + 1
 
 
-def test_ar1_uses_named_time_coordinate_as_canonical_symbol():
+def test_ar1_uses_named_coordinate_as_canonical_symbol():
     b0 = sp.Symbol("b0")
     sigma2 = sp.Symbol("sigma2", positive=True)
     rho = sp.Symbol("rho", positive=True)
-    ar1 = AR1(group="subject", time="time", var=sigma2, rho=rho)
+    ar1 = AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho)
     model = LMM(fixed=Fixed(intercept=b0), random=[], residual=ar1)
     i, j = model.indices()
 
-    assert ar1.time == "time"
+    assert ar1.coordinate == "visit_time"
     entry = ar1.entry(i, j, model)
-    names = {indexed.base.name for indexed in entry.atoms(sp.Indexed)}
-    assert "time" in names
-    assert "t" not in names
+    inside = sp.IndexedBase("visit_time")[model.group(i, "subject"), model.occasion(i, "subject")]
+    assert inside in entry.atoms(sp.Indexed)
 
 
 def test_residual_group_registration_deduplicates():
@@ -84,7 +150,7 @@ def test_residual_group_registration_deduplicates():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
-        residual=AR1(group="subject", time="time", var=sigma2, rho=rho),
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
     )
 
     assert model.groups == (Group("subject"),)
@@ -118,26 +184,26 @@ def test_icc_matrix_and_both_forms_return():
     assert model.icc(form="both") is not None
 
 
-def test_icc_random_slope_requires_time():
+def test_icc_random_slope_requires_coordinate():
     b0 = sp.Symbol("b0")
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
         residual=IID(var=sigma2),
     )
     with pytest.raises(ModelError, match="icc requires at"):
         model.icc(form="sum")
 
 
-def test_icc_random_slope_evaluates_at_given_time():
+def test_icc_random_slope_evaluates_at_given_coordinate():
     b0 = sp.Symbol("b0")
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
         residual=IID(var=sigma2),
     )
-    value = model.icc(at={"time": 2}, form="sum")
+    value = model.icc(at={"coordinate": 2}, form="sum")
     assert sp.simplify(value - (tau2 + 4 * tau2) / (tau2 + 4 * tau2 + sigma2)) == 0
     assert not value.has(sp.Indexed)

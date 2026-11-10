@@ -18,7 +18,7 @@ def test_fixed_names_and_coefficients():
 def test_fixed_mean_at_observation():
     b0, b1 = sp.symbols("b0 b1")
     n = sp.Symbol("n", positive=True, integer=True)
-    model = IndexedModel(n=n, groups=(Group("subject"),), time="time", covariates=("time",))
+    model = IndexedModel(n=n, groups=(Group("subject"),), coordinate="time", covariates=("time",))
     i, _ = model.indices()
     fixed = Fixed(intercept=b0, slopes={"time": b1})
 

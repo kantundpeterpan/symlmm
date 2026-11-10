@@ -20,18 +20,42 @@ def test_random_slope_closed_form():
         random=[
             RandomSlope(
                 group="subject",
-                time="time",
+                coordinate="time",
                 cov=_sd_corr(s0, s1, rho_b),
             )
         ],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()
-    ti, tj = model.time(i), model.time(j)
+    ti, tj = (
+        model.coordinate(i, "time", within="subject"),
+        model.coordinate(j, "time", within="subject"),
+    )
     expected = (s0**2 + s0 * s1 * rho_b * (ti + tj) + s1**2 * ti * tj) * sp.KroneckerDelta(
         model.group(i, "subject"), model.group(j, "subject")
     ) + sigma2 * sp.KroneckerDelta(i, j)
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
+
+
+def test_random_slope_within_false_uses_global_coordinate():
+    b0 = sp.Symbol("b0")
+    s0 = sp.Symbol("s0", positive=True)
+    s1 = sp.Symbol("s1", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    term = RandomSlope(
+        group="subject",
+        coordinate="time",
+        cov=_sd_corr(s0, s1, rho_b),
+        within=False,
+    )
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[term],
+        residual=IID(var=sigma2),
+    )
+    i, _ = model.indices()
+    assert term.z(model, i) == sp.Matrix([1, model.coordinate(i, "time")])
 
 
 def test_random_intercept_and_slope_terms_sum():
@@ -45,12 +69,15 @@ def test_random_intercept_and_slope_terms_sum():
         fixed=Fixed(intercept=b0),
         random=[
             RandomIntercept(group="subject", cov=Scalar(tau2)),
-            RandomSlope(group="subject", time="time", cov=_sd_corr(s0, s1, rho_b)),
+            RandomSlope(group="subject", coordinate="time", cov=_sd_corr(s0, s1, rho_b)),
         ],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()
-    ti, tj = model.time(i), model.time(j)
+    ti, tj = (
+        model.coordinate(i, "time", within="subject"),
+        model.coordinate(j, "time", within="subject"),
+    )
     expected = (tau2 + s0**2 + s0 * s1 * rho_b * (ti + tj) + s1**2 * ti * tj) * sp.KroneckerDelta(
         model.group(i, "subject"), model.group(j, "subject")
     ) + sigma2 * sp.KroneckerDelta(i, j)
@@ -92,7 +119,7 @@ def test_random_slope_rejects_non_2x2_covariance():
     tau2 = sp.Symbol("tau2", positive=True)
 
     with pytest.raises(CovarianceConstructionError, match="2x2"):
-        RandomSlope(group="subject", time="time", cov=Scalar(tau2))
+        RandomSlope(group="subject", coordinate="time", cov=Scalar(tau2))
 
 
 def test_random_intercept_rejects_non_scalar_covariance():

@@ -54,11 +54,15 @@ reproducible analytic formulas.
    working covariance. They have no conditional counterpart and no fitting or
    sandwich-estimator inference in v0.1.
 7. **GLMM marginalization is future work.** Define extension protocols only.
-8. **Observation index.** Every model exposes one observation index `i` over
-   the stacked response. Indices are 0-based internally and 1-based in rendered
-   documentation. Group labels, times, coordinates, and covariates are read
-   through accessors (`model.group`, `model.time`, `model.covariate`,
-   `model.design`); users never build them by hand.
+8. **Observation index (model A).** Every model exposes one observation-row
+   cursor `i` over the stacked response. Group levels `g`, within-group
+   occasions `k`, and coordinates are distinct index spaces read through
+   accessors (`model.group`, `model.occasion`, `model.coordinate`,
+   `model.covariate`, `model.design`); users never build them by hand. Indices
+   are 0-based internally and 1-based in rendered documentation. Index model A
+   is temporary; issue
+   [#1](https://github.com/kantundpeterpan/symlmm/issues/1) tracks the full
+   two-level `(group, occasion)` response index `y[g, k]`, `X[g, k]`, `b[g]`.
 9. **Two-layer matrix representation.** Matrix form is dimensionally abstract:
    `V`, `G`, `R`, `Z`, `X` are `MatrixExpr` objects with symbolic shapes.
    Structure is exposed only through entry/sum form or dense mode. This avoids
@@ -95,14 +99,25 @@ The response vector is stacked over observations. A single index `i` addresses a
 row; all model quantities are functions of `i` and `j`. Internal sums are
 0-based to match SymPy; rendered documentation converts bounds to 1-based.
 
+`i` is only the observation-row cursor and the arity index for queries and
+matrices. Group levels, within-group occasions, and coordinates are separate
+index spaces: `group(i, factor)` returns a level index, `occasion(i, factor)`
+returns a within-group occasion, and a coordinate resolved `within=factor` is
+`X[g, k]`. Index model A is a containment step; issue
+[#1](https://github.com/kantundpeterpan/symlmm/issues/1) tracks the full
+two-level `(group, occasion)` response-index redesign.
+
 Every model provides:
 
 ```python
 i, j = model.indices()
-model.group(i, "subject")     # integer group label g(i)
-model.time(i)                 # t_i
-model.covariate(i, "time")    # x_i component
-model.design(i)               # [1, t_i]
+model.group(i, "subject")       # g_subject[i], level index
+model.occasion(i, "subject")    # k_subject[i], within-group occasion
+model.coordinate(i)             # coordinate[i], global row coordinate
+model.coordinate(i, "visit_time", within="subject")
+# visit_time[g_subject[i], k_subject[i]]
+model.covariate(i, "visit_time")  # x_i component
+model.design(i)                   # [1, visit_time_i]
 ```
 
 Grouping factors are declared explicitly:
@@ -111,10 +126,11 @@ Grouping factors are declared explicitly:
 - `sl.Nested("visit", within="subject")` — composite label `subject:visit`;
 - `sl.Crossed("subject", "item")` — composite label `subject:item`.
 
-Each composite factor yields one integer label, so the sum formula in §3.4 uses a
-single `KroneckerDelta` per factor. GEE models add `model.cluster(i)` and
-`model.occasion(i)`; these are aliases over the same observation index, not a
-second index space.
+Each composite factor yields one integer level label, so the sum formula in
+§3.4 uses a single `KroneckerDelta` per factor. GEE models add
+`model.cluster(i)` (the cluster level) and `model.occasion(i, cluster)` (the
+true within-cluster occasion index); neither is an alias for the row cursor
+`i`.
 
 ### 3.1 Conditional LMM
 
@@ -251,11 +267,16 @@ and zero across clusters.
 
 Implementation uses `IndexedBase`, `Sum`, `KroneckerDelta`, and Euclidean
 distance for spatial coordinates. All sums are 0-based internally; rendered
-output converts bounds to 1-based. Group and time symbols come from model
-accessors, so the same formula derives for nested and crossed factors after
-label construction. Spatial distance is
-\(\lVert s_i-s_j\rVert\), not a scalar absolute difference; `Abs` is used only
-for one-dimensional time/coordinate lags.
+output converts bounds to 1-based. Group-level and coordinate symbols come from
+model accessors, so the same formula derives for nested and crossed factors
+after label construction. Spatial distance is
+\(\lVert s_{g_i,k_i}-s_{g_j,k_j}\rVert\), not a scalar absolute difference;
+`Abs` is used only for one-dimensional coordinate lags.
+
+Queries accept `within=factor` to place rows `i` and `j` in one common level of
+that factor, resolving the factor's `KroneckerDelta` to `1`. The general
+expression keeps the delta; resolution is a query operation, not a change to
+the model IR.
 
 Special cases must simplify automatically:
 
@@ -265,12 +286,13 @@ Special cases must simplify automatically:
   \]
 - random slope:
   \[
-  \big[\tau_{00}+\tau_{01}(t_i+t_j)+\tau_{11}t_it_j\big]\delta(g_i,g_j)
+  \big[\tau_{00}+\tau_{01}(X_{g_i,k_i}+X_{g_j,k_j})
+  +\tau_{11}X_{g_i,k_i}X_{g_j,k_j}\big]\delta(g_i,g_j)
   +\sigma^2\delta(i,j)
   \]
 - AR(1) residual:
   \[
-  \sigma^2\rho^{|t_i-t_j|}\delta(g_i,g_j)
+  \sigma^2\rho^{|X_{g_i,k_i}-X_{g_j,k_j}|}\delta(g_i,g_j)
   \]
 
 ### 3.5 Matrix-to-sum bridge
@@ -357,7 +379,8 @@ C_{ij}=\operatorname{Cov}(y_i,y_j)=V_{ij}
 Variogram selection is explicit: `kind="raw"`, `kind="residual"`, or
 `kind="conditional"`. There is no default.
 
-Stationary specialization substitutes `t_i = t`, `t_j = t + h`.
+Stationary specialization substitutes `X_{g_i,k_i} = x`,
+`X_{g_j,k_j} = x + h`.
 
 ### 3.7 BLUP moments
 
@@ -482,22 +505,37 @@ BLUP support is form-bounded:
 
 ### 5.0 Conventions and contracts
 
-**Index model.** Every model exposes a single observation index `i` over the
-stacked response. Indices are 0-based internally; documentation displays
-1-based sums and states the mapping. Group labels, times, coordinates, and
-covariates are accessed through the model, never constructed by the user:
+**Index model (A).** Every model exposes a single observation-row cursor `i`
+over the stacked response. Indices are 0-based internally; documentation
+displays 1-based sums and states the mapping. Group levels, within-group
+occasions, coordinates, and covariates are accessed through the model, never
+constructed by the user:
 
 ```python
 i, j = model.indices()
-model.group(i, "subject")     # integer group label g(i)
-model.time(i)                 # t_i
-model.covariate(i, "time")    # x_i component
-model.design(i)               # [1, t_i]
+model.group(i, "subject")       # g_subject[i], level index
+model.occasion(i, "subject")    # k_subject[i], within-group occasion
+model.coordinate(i)             # coordinate[i], global row coordinate
+model.coordinate(i, "visit_time", within="subject")
+# visit_time[g_subject[i], k_subject[i]]
+model.covariate(i, "visit_time")  # x_i component
+model.design(i)                   # [1, visit_time_i]
 ```
 
+`i` is not a group level and not a coordinate index. Index model A is
+temporary; issue
+[#1](https://github.com/kantundpeterpan/symlmm/issues/1) tracks the full
+two-level `(group, occasion)` response index redesign.
+
 Nested and crossed factors are declared in the spec (`sl.Nested(...)`,
-`sl.Crossed(...)`). GEE models use the same observation index and add
-`model.cluster(i)` and `model.occasion(i)`.
+`sl.Crossed(...)`). GEE models use the same observation-row cursor and add
+`model.cluster(i)` (the cluster level) and `model.occasion(i, cluster)` (the
+true within-cluster occasion).
+
+**Delta resolution.** `covariance`, `variance`, `correlation`, `variogram`, and
+`covariogram` accept `within=factor`. The query places rows `i` and `j` in one
+common level of that factor, resolving its `KroneckerDelta` to `1`; the default
+query keeps the general cross-group expression.
 
 **Form and arity.** `form` selects notation, not conditioning. Valid
 combinations are fixed:
@@ -536,15 +574,16 @@ rho = sp.Symbol("rho", positive=True)      # 0 < rho < 1, enforced by constraint
 beta0, beta1 = sp.symbols("beta0 beta1", real=True)
 
 model = sl.LMM(
-    fixed=sl.Fixed(intercept=beta0, slopes={"time": beta1}),
+    fixed=sl.Fixed(intercept=beta0, slopes={"visit_time": beta1}),
     random=[
         sl.RandomSlope(
             group="subject",
-            time="time",
+            coordinate="visit_time",
             cov=sl.Unstructured.from_sd_corr(sd=[tau0, tau1], corr=rho_b),
         )
     ],
-    residual=sl.AR1(group="subject", time="time", var=sigma2, rho=rho),
+    residual=sl.AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+    coordinate="visit_time",
 )
 
 i, j = model.indices()
@@ -557,13 +596,16 @@ model.conditional_mean(i, form="sum")            # x_i^T beta + z_i^T b
 model.covariance(form="matrix")                  # V
 model.covariance(i, j, form="sum")               # expanded V_ij
 model.covariance(i, j, form="matrix")            # V[i, j]
+model.covariance(i, j, form="sum", within="subject")  # delta resolved for subject
 model.variance(form="matrix")                    # variance vector (DiagonalOf)
 model.variance(i, form="sum")                    # V_ii
 model.correlation(form="matrix")                 # Corr(V)
 model.correlation(i, j, form="sum")              # Corr(V)_ij
-model.icc(at={"time": 0}, form="both")           # conditional VPC
+model.icc(at={"coordinate": 0}, form="both")     # conditional VPC
 model.variogram(i, j, kind="residual", form="both")
+model.variogram(i, j, kind="residual", form="sum", within="subject")
 model.covariogram(i, j, form="both")
+model.covariogram(i, j, form="sum", within="subject")
 model.blup_mean(form="matrix")
 model.blup_covariance(form="matrix")
 model.blup_cross_covariance(i, form="matrix")
@@ -575,16 +617,17 @@ model.to_latex(form="sum")
 
 ```python
 marg = sl.MarginalLMM(
-    fixed=sl.Fixed(intercept=beta0, slopes={"time": beta1}),
-    covariance=sl.AR1(group="subject", time="time", var=sigma2, rho=rho),
+    fixed=sl.Fixed(intercept=beta0, slopes={"visit_time": beta1}),
+    covariance=sl.AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
 )
 
 marg.mean(form="matrix")
 marg.covariance(i, j, form="both")
+marg.covariance(i, j, form="sum", within="subject")
 marg.correlation(i, j, form="sum")
-marg.variogram(i, j, kind="residual", form="sum")
-marg.covariogram(i, j, form="sum")
-marg.icc(at={"time": 0}, form="both")   # Gaussian identity only
+marg.variogram(i, j, kind="residual", form="sum", within="subject")
+marg.covariogram(i, j, form="sum", within="subject")
+marg.icc(at={"coordinate": 0}, form="both")   # Gaussian identity only
 marg.summary(form="both")
 ```
 
@@ -608,9 +651,9 @@ marg.conditional(form="both")           # LMM, or raises NotDecomposable
 
 ```python
 gee = sl.GEE(
-    fixed=sl.Fixed(intercept=beta0, slopes={"time": beta1}),
+    fixed=sl.Fixed(intercept=beta0, slopes={"visit_time": beta1}),
     family=sl.Poisson(link="log"),
-    correlation=sl.WorkingAR1(group="subject", time="time", rho=rho),
+    correlation=sl.WorkingAR1(group="subject", coordinate="visit_time", rho=rho),
     dispersion=sp.Symbol("phi", positive=True),
 )
 
@@ -618,11 +661,13 @@ gee.mean(form="matrix")
 gee.mean(i, form="sum")
 gee.variance(form="matrix")
 gee.covariance(i, j, form="both")
+gee.covariance(i, j, form="sum", within="subject")
 gee.variogram(i, j, kind="raw", form="sum")
 gee.covariogram(i, j, form="sum")
+gee.occasion(i, "subject")               # k_subject[i], within-cluster occasion
 gee.summary(form="both")
 gee.conditional()                       # raises NoConditionalModel
-gee.icc(at={"time": 0}, form="both")    # raises NotDefined
+gee.icc(at={"coordinate": 0}, form="both")  # raises NotDefined
 ```
 
 ### 5.4 Required `form`
@@ -654,7 +699,7 @@ Rules:
 - `evaluate` requires every free symbol to be resolved; otherwise it raises
   `UnresolvedSymbols`.
 - `lambdify` returns a callable over the declared arguments.
-- `dense` requires concrete observation count, group labels, times, and
+- `dense` requires concrete observation count, group labels, coordinates, and
   covariates. It returns concrete `Matrix` objects and is the only mode where
   `as_explicit()` is called.
 - Validation, examples, and notebooks use these methods; ad-hoc `lambdify`
@@ -711,7 +756,10 @@ class ParameterConstraintError(ModelError): ...  # .violations
 Random terms are specified in `specs.py`; covariance structure is separate:
 
 - `RandomIntercept(group, cov=Scalar(tau2))`.
-- `RandomSlope(group, time, cov=...)`, with `cov` a 2×2 `Unstructured`.
+- `RandomSlope(group, coordinate, cov=...)`, with `cov` a 2×2 `Unstructured`.
+  `within=True` (default) evaluates the slope at the within-group coordinate
+  `X[g_i, k_i]`; `within=False` uses the global row coordinate. The random
+  effect remains gated by the group delta.
 
 Covariance building blocks:
 
@@ -726,18 +774,30 @@ Covariance building blocks:
 ### 6.2 Residual / marginal covariance `R`
 
 - `IID`: \(\sigma^2\delta(i,j)\), \(\sigma^2>0\).
-- `CompoundSymmetry`: \(\rho>-1/(m_{\min}-1)\), where \(m_{\min}\) is the
-  minimum cluster size.
-- `AR1`: \(-1<\rho<1\).
-- `Toeplitz`: `from_cholesky` or checked dense construction.
+- `CompoundSymmetry(group, var, rho, nugget=0)`:
+  \(\rho>-1/(m_{\min}-1)\), where \(m_{\min}\) is the minimum cluster size.
+- `AR1(group, coordinate, var, rho, nugget=0)`:
+  \(\sigma^2\rho^{|X_{g_i,k_i}-X_{g_j,k_j}|}\delta(g_i,g_j)\), \(-1<\rho<1\).
+- `Toeplitz(group, coordinate, variances, correlations, nugget=0)`:
+  `from_cholesky` or checked dense construction.
 - `Unstructured`: `from_cholesky`.
 - `Heteroscedastic`: `IndexedBase("sigma2", positive=True)`.
-- `Exponential`: range \(>0\).
-- `Gaussian`: range \(>0\).
-- `Matern`: range \(>0\), \(\nu\in\{\tfrac12,\tfrac32,\tfrac52\}\), Euclidean
-  distance \(\lVert s_i-s_j\rVert\).
+- `Exponential(var, range, group=None, coords=("x", "y"), nugget=0)`:
+  range \(>0\).
+- `Gaussian(var, range, group=None, coords=("x", "y"), nugget=0)`:
+  range \(>0\).
+- `Matern(var, range, nu, group=None, coords=("x", "y"), nugget=0)`:
+  range \(>0\), \(\nu\in\{\tfrac12,\tfrac32,\tfrac52\}\), Euclidean distance
+  \(\lVert s_{g_i,k_i}-s_{g_j,k_j}\rVert\).
 - `BlockDiag`: explicit blocks or group-index blocks.
-- `KroneckerProduct`: separable group × time structures.
+- `KroneckerProduct`: separable group × coordinate structures.
+
+`AR1`, `Toeplitz`, `CompoundSymmetry`, `Exponential`, `Gaussian`, and `Matern`
+accept an additive `nugget >= 0`. The zero-lag covariance is `var + nugget`;
+nonzero lags use `var * correlation(lag)`. `var` is the partial variance and
+`nugget` is measurement error. Spatial structures with `group=` gate the
+correlated part with the same-group delta and use generic `coords` resolved
+within the group.
 
 Each structure exposes `constraints()`; `model.validate_parameters()` checks
 them and raises `ParameterConstraintError` with the violated constraints.
@@ -919,8 +979,10 @@ docs/
 - **Getting started:** install, import, first RI model, first marginal model.
 - **Model specification:** fixed/random/residual/marginal/GEE specs.
 - **Covariance structures:** formulas and parameter constraints.
-- **Moments:** expectation, variance, covariance, correlation, ICC.
-- **Variograms:** raw vs residual vs conditional; same-group vs cross-group.
+- **Moments:** expectation, variance, covariance, correlation, ICC, and
+  `within=` queries.
+- **Variograms:** raw vs residual vs conditional; same-group vs cross-group;
+  `within=` delta resolution.
 - **Marginal vs conditional:** derivation, equivalence, decomposition limits.
 - **GEE:** working covariance, families, equivalence with marginal LMMs.
 - **Forms:** sum notation vs matrix notation, required `form`, conversion.
@@ -956,11 +1018,14 @@ Quarto example pages:
 - Forms: missing, invalid, and invalid-arity errors; `DualForm` consistency;
   `EntryMap` shape and lookup.
 - Errors: hierarchy, stable `.reason`/`.suggestion`/`.violations` fields.
-- Index model: accessors, nested/crossed labels, GEE cluster/occasion aliases.
+- Index model: row cursor vs group-level and occasion index spaces;
+  within-group coordinates; `within=` delta resolution; nested/crossed labels;
+  GEE cluster and true within-cluster occasion.
 - Constraints: PD tri-state (`True`, `False`, `None`), constraint collection,
   `ParameterConstraintError`.
 - Covariance structures: `entry`/`dense` consistency for every G/R structure;
-  PD-safe constructors; constraint checks.
+  PD-safe constructors; constraint checks; nugget at zero lag only; grouped
+  spatial cross-group zeros.
 - Shapes and assumptions: symbolic dimensions; `as_explicit()` is never called
   outside dense mode (monkeypatched guard).
 - Sum/matrix consistency for every model and covariance structure.
@@ -988,6 +1053,8 @@ Quarto example pages:
 - BLUP moments match explicit dense formulas for small instances.
 - Nested and crossed random effects match hand-derived covariance entries.
 - Spatial exponential, Gaussian, and Matérn entries match hand-derived values.
+- Grouped spatial covariances are zero across groups; spatial nuggets contribute
+  only at zero lag.
 - Multiple random terms (K>1) assemble correctly.
 - Dense mode plus BLUP runs end to end.
 
@@ -1010,6 +1077,8 @@ Quarto example pages:
 | Required `form` and error taxonomy | `tests/unit/test_forms.py`, `tests/unit/test_errors.py` |
 | Sum/matrix consistency | `tests/unit/test_forms_bridge.py` |
 | RI, RS, AR(1), CS, IID closed forms | `tests/unit/test_closed_forms.py` |
+| Within-group coordinates and delta resolution | `tests/unit/test_indices.py`, `tests/unit/test_moments.py`, `tests/unit/test_variograms.py`, `tests/unit/test_dense.py` |
+| Nuggets and grouped spatial covariance | `tests/unit/test_closed_forms.py`, `tests/unit/test_residual_covariances.py`, `tests/unit/test_spatial_covariances.py` |
 | Variograms and covariogram | `tests/unit/test_variograms.py` |
 | Correlation, ICC | `tests/unit/test_moments.py` |
 | BLUP | `tests/unit/test_blup.py`, `tests/integration/test_blup_dense.py` |
@@ -1127,7 +1196,8 @@ reviewed and the M0.5 spike closes the SymPy assumptions.
 | Gap | Resolution |
 |---|---|
 | No task breakdown | §11 points to three executable task plans with TDD steps and exit criteria. |
-| Clustered index model | §3.0 and §5.0 define one observation index, accessors, nested/crossed labels, and GEE aliases. |
+| Clustered index model | §3.0 and §5.0 define index model A: `i` is a row cursor, group levels and occasions are distinct index spaces, coordinates use `X[g, k]`, and nested/crossed labels are registered. Issue #1 tracks the full `(g, k)` response-index redesign. |
+| Within-group coordinates and deltas | §3.4 and §5.0 document `within=` delta resolution; §6.1–6.2 document grouped spatial covariances and nuggets. |
 | Matrix-form representation | §2 decision 9 defines an abstract matrix layer plus a structured entry layer; M0.5 validates SymPy capabilities. |
 | PD/parameter constraints | §2 decision 10, §5.7, §6.1–6.2 define PD-safe constructors, `constraints()`, and tri-state PD checks. |
 | Decomposition algorithm | §7.2 replaces "registry match" with a bounded canonicalize/match/solve/validate algorithm. |
