@@ -11,6 +11,13 @@
 ## Global Constraints
 
 - Read `docs/superpowers/plans/2026-11-09-symlmm-core.md` first; reuse its `IndexedModel`, `Form`, `DualForm`, `RequireForm`, and error types.
+- Index model A is temporary: `i` is the observation-row cursor;
+  `group(i, factor)` and `occasion(i, factor)` are distinct index spaces;
+  coordinates use `coordinate(i, name, within=factor)`. Issue
+  [#1](https://github.com/kantundpeterpan/symlmm/issues/1) tracks the full
+  two-level `(group, occasion)` response index.
+- Declare coordinates with `coordinate=`; the removed legacy coordinate keyword
+  is not accepted. `icc` uses `at={"coordinate": ...}`.
 - Every public call requires `form`; missing raises `MissingFormError`.
 - Marginal moments are the default; conditional moments are explicit.
 - `is_decomposable()` is bounded: provenance or a registered template with a unique constrained solution.
@@ -92,6 +99,7 @@ from ..model import IndexedModel
 from ..moments import covariance as _covariance
 from ..moments import mean as _mean
 from ..moments import variance as _variance
+from ..specs import Group
 from ..variogram import covariogram as _covariogram
 from ..variogram import variogram as _variogram
 
@@ -102,10 +110,11 @@ class MarginalLMM(IndexedModel):
     def __init__(self, *, fixed, covariance, n=None) -> None:
         self.fixed = fixed
         self.covariance_spec = covariance
+        group = getattr(covariance, "group", None)
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
-            groups=(),
-            time=getattr(covariance, "time", None),
+            groups=(Group(group),) if group is not None else (),
+            coordinate=getattr(covariance, "coordinate", None),
             covariates=tuple(fixed.slopes),
         )
 
@@ -265,7 +274,7 @@ class InducedCovariance:
 
     def __init__(self, source) -> None:
         self.source = source
-        self.time = getattr(source, "time_name", None)
+        self.coordinate = getattr(source, "coordinate_name", None)
 
     def entry(self, i, j, model) -> object:
         return self.source.covariance_entry(i, j)
@@ -499,7 +508,7 @@ def _ar1():
     rho = sp.Symbol("rho", positive=True)
     return MarginalLMM(
         fixed=Fixed(intercept=b0),
-        covariance=AR1(group="subject", time="time", var=sigma2, rho=rho),
+        covariance=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         n=4,
     )
 
@@ -726,7 +735,7 @@ from symlmm.specs import Group
 
 def _model():
     n = sp.Symbol("n", positive=True, integer=True)
-    return IndexedModel(n=n, groups=(Group("subject"),), time="time")
+    return IndexedModel(n=n, groups=(Group("subject"),), coordinate="visit_time")
 
 
 def test_independence_is_diagonal():
@@ -749,8 +758,13 @@ def test_ar1_entry():
     model = _model()
     i, j = model.indices()
     rho = sp.Symbol("rho", positive=True)
-    corr = WorkingAR1(group="subject", time="time", rho=rho)
-    assert corr.entry(i, j, model) == rho ** sp.Abs(model.time(i) - model.time(j))
+    corr = WorkingAR1(group="subject", coordinate="visit_time", rho=rho)
+    same = sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject"))
+    lag = sp.Abs(
+        model.coordinate(i, "visit_time", within="subject")
+        - model.coordinate(j, "visit_time", within="subject")
+    )
+    assert corr.entry(i, j, model) == same * rho**lag
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -801,14 +815,17 @@ class WorkingExchangeable(WorkingCorrelation):
 class WorkingAR1(WorkingCorrelation):
     """AR(1) working correlation within clusters."""
 
-    def __init__(self, *, group: str, time: str, rho: sp.Expr) -> None:
+    def __init__(self, *, group: str, coordinate: str, rho: sp.Expr) -> None:
         self.group = group
-        self.time = time
+        self.coordinate = coordinate
         self.rho = rho
 
     def entry(self, i, j, model):
         same = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
-        lag = sp.Abs(model.time(i, self.time) - model.time(j, self.time))
+        lag = sp.Abs(
+            model.coordinate(i, self.coordinate, within=self.group)
+            - model.coordinate(j, self.coordinate, within=self.group)
+        )
         return self.rho**lag * same
 ```
 
@@ -856,9 +873,9 @@ def _model():
     rho = sp.Symbol("rho", positive=True)
     phi = sp.Symbol("phi", positive=True)
     return GEE(
-        fixed=Fixed(intercept=b0, slopes={"time": b1}),
+        fixed=Fixed(intercept=b0, slopes={"visit_time": b1}),
         family=Poisson(link="log"),
-        correlation=WorkingAR1(group="subject", time="time", rho=rho),
+        correlation=WorkingAR1(group="subject", coordinate="visit_time", rho=rho),
         dispersion=phi,
         n=4,
     )
@@ -868,7 +885,7 @@ def test_cluster_and_occasion_accessors():
     model = _model()
     i, _ = model.indices()
     assert model.cluster(i) is not None
-    assert model.occasion(i) is not None
+    assert model.occasion(i, "subject") == sp.IndexedBase("k_subject", shape=(model.n,))[i]
 
 
 def test_conditional_and_icc_are_undefined():
@@ -876,7 +893,7 @@ def test_conditional_and_icc_are_undefined():
     with pytest.raises(NoConditionalModel):
         model.conditional()
     with pytest.raises(NotDefined):
-        model.icc(at={"time": 0}, form="both")
+        model.icc(at={"coordinate": 0}, form="both")
 
 
 def test_covariance_zero_across_clusters():
@@ -919,7 +936,7 @@ class GEE(IndexedModel):
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
             groups=groups,
-            time=getattr(correlation, "time", None),
+            coordinate=getattr(correlation, "coordinate", None),
             covariates=tuple(fixed.slopes),
         )
 
@@ -928,10 +945,9 @@ class GEE(IndexedModel):
             return sp.Integer(0)
         return self.group(i, self.correlation.group)
 
-    def occasion(self, i):
-        if self.time_name is None:
-            return sp.Integer(0)
-        return self.time(i)
+    def occasion(self, i, cluster: str):
+        """Return the true within-cluster occasion index for row `i`."""
+        return super().occasion(i, cluster)
 
     def mean(self, i=None, *, form=None):
         form = require_form(form)

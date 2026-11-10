@@ -7,27 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-10
+
 ### Added
 
-- `LMM(..., time=...)` accepts an explicit canonical time coordinate.
+- `model.occasion(i, factor)` and two-level `model.coordinate(i, name, within=factor)`.
+- `within=` resolution for covariance, variance, correlation, variogram, and covariogram.
+- Grouped spatial covariances with `group=` and generic `coords=`.
+- Additive `nugget=` on AR(1), Toeplitz, compound-symmetry, and spatial covariances.
 
 ### Changed
 
-- `LMM.design(i)` now follows `Fixed` column order and count instead of
-  unconditionally inserting the canonical time.
-- Conflicting residual/random time coordinates now raise `ModelError`; a
-  single declared coordinate is inferred.
-- Random-slope `icc` requires `at={"time": ...}` instead of silently
-  evaluating at observation 0.
-- Dense-mode group labels are integer codes over the factor's label space,
-  including nested and crossed composite factors.
-- Constraint messages name the actual parameter expression instead of using
-  fixed `tau2`/`sigma2` text.
+- Public `time` names replaced by `coordinate`; `model.time` and `time=` are removed.
+- `RandomSlope` uses a within-group coordinate by default.
+- Coordinate access without a canonical name raises `ModelError` instead of falling back to `t`.
+- `LMM.design(i)` follows `Fixed` column order and count instead of unconditionally inserting the canonical coordinate.
+- Conflicting residual/random coordinates raise `ModelError`; a single declared coordinate is inferred.
+- Random-slope `icc` requires `at={"coordinate": ...}` instead of silently evaluating at observation 0.
+- Dense-mode group labels are integer codes over the factor's label space, including nested and crossed composite factors; occasion codes are ranked within each group.
+- Constraint messages name the actual parameter expression instead of using fixed `tau2`/`sigma2` text.
 
 ### Fixed
 
-- `Heteroscedastic.entry` raises `ModelError` for concrete out-of-range
-  indices instead of silently returning zero.
+- Spatial covariances no longer return nonzero cross-group covariance when `group=` is supplied.
+- Group levels, occasions, and coordinates no longer share the observation row index.
+- `Heteroscedastic.entry` raises `ModelError` for concrete out-of-range indices instead of silently returning zero.
 - `covariogram` delegates to `covariance` to keep the two quantities in sync.
 
 ## [0.1.0] - 2026-11-09
@@ -56,5 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed errors from `symlmm.errors`, including `MissingFormError`.
 - Extension protocols for post-v0.1 work; no GLMM implementation.
 
-[Unreleased]: https://github.com/kantundpeterpan/symlmm/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kantundpeterpan/symlmm/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kantundpeterpan/symlmm/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kantundpeterpan/symlmm/releases/tag/v0.1.0
