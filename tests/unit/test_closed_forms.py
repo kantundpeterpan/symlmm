@@ -38,7 +38,7 @@ def test_ar1_residual_closed_form():
     i, j = model.indices()
     expected = (
         sigma2
-        * rho ** sp.Abs(model.time(i) - model.time(j))
+        * rho ** sp.Abs(model.coordinate(i, "time") - model.coordinate(j, "time"))
         * sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject"))
     )
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
@@ -118,26 +118,26 @@ def test_icc_matrix_and_both_forms_return():
     assert model.icc(form="both") is not None
 
 
-def test_icc_random_slope_requires_time():
+def test_icc_random_slope_requires_coordinate():
     b0 = sp.Symbol("b0")
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
         residual=IID(var=sigma2),
     )
     with pytest.raises(ModelError, match="icc requires at"):
         model.icc(form="sum")
 
 
-def test_icc_random_slope_evaluates_at_given_time():
+def test_icc_random_slope_evaluates_at_given_coordinate():
     b0 = sp.Symbol("b0")
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
         residual=IID(var=sigma2),
     )
-    value = model.icc(at={"time": 2}, form="sum")
+    value = model.icc(at={"coordinate": 2}, form="sum")
     assert sp.simplify(value - (tau2 + 4 * tau2) / (tau2 + 4 * tau2 + sigma2)) == 0
     assert not value.has(sp.Indexed)

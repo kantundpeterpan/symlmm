@@ -11,7 +11,7 @@ from symlmm.specs import Group
 
 def _model():
     n = sp.Symbol("n", positive=True, integer=True)
-    return IndexedModel(n=n, groups=(Group("subject"),), time="time")
+    return IndexedModel(n=n, groups=(Group("subject"),), coordinate="time")
 
 
 def test_compound_symmetry_entry():

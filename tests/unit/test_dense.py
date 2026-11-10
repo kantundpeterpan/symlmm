@@ -68,12 +68,12 @@ def test_matrix_x_returns_design_matrix():
     )
 
 
-def test_dense_random_slope_uses_observation_times():
+def test_dense_random_slope_uses_observation_coordinates():
     tau2 = sp.Symbol("tau2", positive=True)
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=sp.Symbol("b0")),
-        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
         residual=IID(var=sigma2),
         n=4,
     )
@@ -171,16 +171,60 @@ def test_dense_design_matches_matrix_x_rows():
         assert dense.design(k) == dense.matrix_x()[k, :].T
 
 
-def test_dense_icc_random_slope_evaluates_at_given_time():
+def test_dense_icc_random_slope_evaluates_at_given_coordinate():
     b0 = sp.Symbol("b0")
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", time="time", cov=Diagonal([tau2, tau2]))],
+        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
         residual=IID(var=sigma2),
         n=2,
     )
     dense = model.dense(subject=[0, 0], time=[1, 2])
-    value = dense.icc(at={"time": 5}, form="sum")
+    value = dense.icc(at={"coordinate": 5}, form="sum")
     assert sp.simplify(value - 26 * tau2 / (26 * tau2 + sigma2)) == 0
     assert not value.has(sp.Indexed)
+
+
+def test_dense_occasion_codes_are_within_group():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], visit_time=[10, 11, 10, 11])
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert dense.coordinate(0, "visit_time", within="subject") == 10
+    assert dense.coordinate(1, "visit_time", within="subject") == 11
+
+
+def test_dense_nested_coordinate_rejects_conflict():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        occasion="occasion",
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=[0, 0, 1, 1],
+        visit_time=[10, 10, 11, 11],
+    )
+    conflicting = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=[0, 0, 1, 1],
+        visit_time=[10, 11, 12, 13],
+    )
+    assert dense.coordinate(0, "visit_time", within="subject") == 10
+    with pytest.raises(ModelError, match="not constant within"):
+        conflicting.coordinate(1, "visit_time", within="subject")

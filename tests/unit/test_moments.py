@@ -83,7 +83,7 @@ def test_conditional_mean_intercept_and_slope_do_not_collide():
             RandomIntercept(group="subject", cov=Scalar(tau2)),
             RandomSlope(
                 group="subject",
-                time="time",
+                coordinate="time",
                 cov=Unstructured.from_sd_corr([s0, s1], rho_b),
             ),
         ],
