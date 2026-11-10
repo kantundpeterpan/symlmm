@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-10
+
+### Breaking
+
+- Removed `RandomIntercept` and the covariance-bearing `RandomSlope`. Random
+  effects are now declared with one joint `RandomEffects` block per grouping
+  factor; `LMM.random` accepts `RandomEffects` blocks.
+- A grouping factor may appear in at most one block. Duplicate-group blocks
+  raise `ModelError`; combine intercepts and slopes into one block instead.
+
+### Added
+
+- `RandomEffects(group, cov, intercept=False, slopes=())` with `dim`,
+  `coordinates()`, and one `Z G Z^T` block per group. Intercepts and slopes in
+  the same block share a joint covariance, including intercept–slope and
+  slope–slope terms.
+- `RandomSlope(coordinate, within=True)` as a pure design definition with no
+  covariance. Multiple coordinates per block are supported.
+- `icc(at=...)` accepts a coordinate-name mapping such as
+  `at={"time": 2, "dose": 3}` for multi-coordinate random effects.
+
+### Changed
+
+- A model with multiple random-slope coordinates has no single canonical
+  coordinate; coordinates are inferred from all slope definitions.
+- Old independent intercept and slope terms on one group must be combined into
+  a joint block; unrelated grouping factors remain separate `RandomEffects`
+  blocks.
+
+### Fixed
+
+- `design(i)` no longer double-counts a fixed slope whose name equals the
+  declared coordinate.
+- Derived dense occasion codes sort mixed value types deterministically
+  instead of raising `TypeError`.
+- Within-group symbols are cached per factor instead of being recreated on
+  every query.
+- Nugget constraints are applied consistently across AR(1), Toeplitz,
+  compound-symmetry, and spatial covariances; zero nuggets emit no constraint.
+- Added covariance docstrings plus coverage for grouped-spatial cross-group
+  zeros and per-factor `occasion` mappings.
+
+### Migration
+
+| 0.2.0 | 0.3.0 |
+|---|---|
+| `RandomIntercept(group=G, cov=C)` | `RandomEffects(group=G, intercept=True, cov=C)` |
+| `RandomSlope(group=G, coordinate=X, cov=C)` | `RandomEffects(group=G, intercept=True, slopes=(RandomSlope(X),), cov=C)` |
+| `RandomSlope(group=G, coordinate=X, cov=C, within=W)` | `RandomEffects(group=G, intercept=True, slopes=(RandomSlope(X, within=W),), cov=C)` |
+
+`RandomSlope` previously carried a 2×2 covariance for its implicit intercept
+and slope, so the mapping above keeps both columns. When a 0.2.0 model used a
+separate `RandomIntercept` and `RandomSlope` on the same group, fold the
+standalone intercept variance into the joint block's intercept variance; the
+old blocks cannot be reproduced by concatenating two new blocks.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added
@@ -60,6 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed errors from `symlmm.errors`, including `MissingFormError`.
 - Extension protocols for post-v0.1 work; no GLMM implementation.
 
-[Unreleased]: https://github.com/kantundpeterpan/symlmm/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kantundpeterpan/symlmm/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kantundpeterpan/symlmm/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kantundpeterpan/symlmm/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kantundpeterpan/symlmm/releases/tag/v0.1.0

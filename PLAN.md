@@ -164,6 +164,13 @@ Z=[Z_1\ \cdots\ Z_K],\qquad
 G=\operatorname{BlockDiag}(G_1,\dots,G_K)
 \]
 
+Each block is declared as one `RandomEffects(group, cov, intercept, slopes)`.
+The block owns its grouping factor, the intercept flag, the `RandomSlope`
+design definitions, and the joint covariance \(G_k\). Intercepts and slopes
+that share a group therefore share one covariance block, including their
+covariances. Different grouping factors use separate blocks, and a grouping
+factor appears in at most one block.
+
 ### 3.2 Marginal LMM
 
 Two routes:
@@ -576,9 +583,10 @@ beta0, beta1 = sp.symbols("beta0 beta1", real=True)
 model = sl.LMM(
     fixed=sl.Fixed(intercept=beta0, slopes={"visit_time": beta1}),
     random=[
-        sl.RandomSlope(
+        sl.RandomEffects(
             group="subject",
-            coordinate="visit_time",
+            intercept=True,
+            slopes=(sl.RandomSlope("visit_time"),),
             cov=sl.Unstructured.from_sd_corr(sd=[tau0, tau1], corr=rho_b),
         )
     ],
@@ -753,13 +761,45 @@ class ParameterConstraintError(ModelError): ...  # .violations
 
 ### 6.1 Random effects `G`
 
-Random terms are specified in `specs.py`; covariance structure is separate:
+Random terms are specified in `specs.py`; covariance structure is separate.
+Each grouping factor contributes one joint `RandomEffects` block:
 
-- `RandomIntercept(group, cov=Scalar(tau2))`.
-- `RandomSlope(group, coordinate, cov=...)`, with `cov` a 2×2 `Unstructured`.
-  `within=True` (default) evaluates the slope at the within-group coordinate
-  `X[g_i, k_i]`; `within=False` uses the global row coordinate. The random
-  effect remains gated by the group delta.
+- `RandomEffects(group, cov, intercept=False, slopes=())` pairs one grouping
+  factor with one joint design and covariance. `intercept=True` prepends the
+  constant column; `slopes` is a tuple of `RandomSlope` definitions. `cov` must
+  be `dim × dim`, where `dim = int(intercept) + len(slopes)`, so
+  intercept–slope and slope–slope covariances are modelled jointly.
+- `RandomSlope(coordinate, within=True)` is a pure design definition: it names
+  the coordinate column and whether it is evaluated within the group
+  (`within=True`, default: `X[g_i, k_i]`) or globally
+  (`within=False`: `X_i`). It carries no covariance.
+- Different grouping factors use separate blocks; a grouping factor may appear
+  in at most one block. Blocks assemble as
+  \(Z=[Z_1\ \cdots\ Z_K]\), \(G=\operatorname{BlockDiag}(G_1,\dots,G_K)\).
+  Every block is gated by its group delta \(\delta(g_i,g_j)\).
+
+```python
+# intercept-only: 1x1 covariance
+sl.RandomEffects(group="subject", intercept=True, cov=sl.Scalar(tau2))
+
+# joint intercept and slope: 2x2 covariance, including their covariance
+sl.RandomEffects(
+    group="subject",
+    intercept=True,
+    slopes=(sl.RandomSlope("visit_time"),),
+    cov=sl.Unstructured.from_sd_corr(sd=[tau0, tau1], corr=rho_b),
+)
+
+# slopes only, possibly in different coordinates
+sl.RandomEffects(
+    group="subject",
+    slopes=(sl.RandomSlope("visit_time"), sl.RandomSlope("dose", within=False)),
+    cov=sl.Diagonal([tau_time, tau_dose]),
+)
+
+# a second grouping factor is a separate block
+sl.RandomEffects(group="item", intercept=True, cov=sl.Scalar(omega2))
+```
 
 Covariance building blocks:
 

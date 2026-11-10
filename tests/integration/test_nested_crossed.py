@@ -4,7 +4,7 @@ import sympy as sp
 
 from symlmm.covariances import IID, Scalar
 from symlmm.model import LMM
-from symlmm.specs import Crossed, Fixed, Nested, RandomIntercept
+from symlmm.specs import Crossed, Fixed, Nested, RandomEffects
 
 
 def test_nested_and_crossed_labels_feed_sum_form():
@@ -15,8 +15,8 @@ def test_nested_and_crossed_labels_feed_sum_form():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[
-            RandomIntercept(group="visit", cov=Scalar(tau_v)),
-            RandomIntercept(group="item", cov=Scalar(tau_x)),
+            RandomEffects(group="visit", intercept=True, cov=Scalar(tau_v)),
+            RandomEffects(group="item", intercept=True, cov=Scalar(tau_x)),
         ],
         residual=IID(var=sigma2),
         groups=(Nested("visit", within="subject"), Crossed("subject", "item")),

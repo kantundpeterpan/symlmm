@@ -3,7 +3,7 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, CompoundSymmetry, Heteroscedastic, Toeplitz
+from symlmm.covariances import AR1, IID, CompoundSymmetry, Heteroscedastic, Toeplitz
 from symlmm.errors import CovarianceConstructionError, ModelError
 from symlmm.model import IndexedModel
 from symlmm.specs import Group
@@ -92,6 +92,21 @@ def test_toeplitz_entry():
     assert cov.entry(0, 1, model) == sigma2 * rho1
     assert cov.entry(0, 2, model) == sigma2 * rho2
     assert cov.entry(0, 3, model) == 0
+
+
+def test_zero_nugget_adds_no_constraint():
+    sigma2, rho = sp.symbols("sigma2 rho", positive=True)
+    ar1 = AR1(group="subject", coordinate="time", var=sigma2, rho=rho)
+    toeplitz = Toeplitz(group="subject", coordinate="time", variances=[sigma2], correlations=[rho])
+    compound = CompoundSymmetry(group="subject", var=sigma2, rho=rho)
+
+    assert [constraint.message for constraint in ar1.constraints()] == [
+        "-1 < rho",
+        "rho < 1",
+        "sigma2 > 0",
+    ]
+    assert [constraint.message for constraint in toeplitz.constraints()] == ["sigma2 > 0"]
+    assert len(compound.constraints()) == 3
 
 
 def test_toeplitz_nugget_at_zero_lag_only():

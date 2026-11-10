@@ -7,7 +7,7 @@ from symlmm.covariances import AR1, IID, Scalar
 from symlmm.errors import InvalidKindError, MissingFormError, ModelError, UnsupportedForm
 from symlmm.forms import DualForm
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects
 
 
 def _model():
@@ -16,7 +16,7 @@ def _model():
     sigma2 = sp.Symbol("sigma2", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
 
@@ -26,7 +26,7 @@ def _ar1_model():
     tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
         coordinate="visit_time",
     )
@@ -99,7 +99,7 @@ def test_raw_variogram_includes_mean_difference():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0, slopes={"x": b1}),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()

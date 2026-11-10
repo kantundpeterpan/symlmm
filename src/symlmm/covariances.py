@@ -26,7 +26,13 @@ def _nonnegative(value: sp.Expr) -> Constraint:
 
 def _nugget_entry(nugget: sp.Expr, i: Any, j: Any) -> sp.Expr:
     """Return the zero-lag measurement-error contribution."""
-    return sp.Integer(0) if nugget == 0 else nugget * sp.KroneckerDelta(i, j)
+    return _ZERO if nugget == _ZERO else nugget * sp.KroneckerDelta(i, j)
+
+
+def _append_nugget_constraint(constraints: list[Constraint], nugget: sp.Expr) -> None:
+    """Append the non-negativity constraint for a nonzero nugget."""
+    if nugget != _ZERO:
+        constraints.append(_nonnegative(nugget))
 
 
 class CovarianceSpec(ABC):
@@ -165,7 +171,13 @@ class IID(ResidualCovariance):
 
 
 class CompoundSymmetry(ResidualCovariance):
-    """Compound-symmetry residual covariance within groups."""
+    """Compound-symmetry residual covariance within groups.
+
+    ``group`` names the grouping factor gating the within-group covariance,
+    ``var`` is the common variance, ``rho`` the within-group correlation,
+    ``m_max`` the largest group size used to bound ``rho``, and ``nugget`` an
+    optional non-negative zero-lag measurement error.
+    """
 
     def __init__(
         self,
@@ -204,13 +216,18 @@ class CompoundSymmetry(ResidualCovariance):
             Constraint(1 - self.rho, Relation.GT, "rho < 1"),
             _positive(self.var),
         ]
-        if self.nugget != 0:
-            values.append(_nonnegative(self.nugget))
+        _append_nugget_constraint(values, self.nugget)
         return tuple(values)
 
 
 class Toeplitz(ResidualCovariance):
-    """Toeplitz residual covariance with lag parameters."""
+    """Toeplitz residual covariance with lag parameters.
+
+    ``coordinate`` names the within-group coordinate column whose absolute lag
+    selects ``correlations``, ``group`` is the grouping factor gating the
+    covariance, and ``nugget`` is an optional non-negative zero-lag measurement
+    error.
+    """
 
     def __init__(
         self,
@@ -258,8 +275,7 @@ class Toeplitz(ResidualCovariance):
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
         values = [_positive(self.variances[0])]
-        if self.nugget != 0:
-            values.append(_nonnegative(self.nugget))
+        _append_nugget_constraint(values, self.nugget)
         return tuple(values)
 
 
@@ -315,8 +331,11 @@ class AR1(ResidualCovariance):
         ``i`` and ``j``. This is the
         discrete-time AR(1) form when ``coordinate`` is numeric and unit-spaced;
         for irregular or non-unit spacing it is the continuous-time exponential
-        covariance with ``rho`` per unit time. ``LMM`` rejects residual/random
-        coordinate declarations that conflict with the canonical coordinate.
+        covariance with ``rho`` per unit time. ``group`` names the grouping
+        factor gating the covariance, and ``nugget`` is an optional non-negative
+        zero-lag measurement error. ``LMM`` rejects an explicit canonical
+        coordinate only when it conflicts with a residual-declared coordinate;
+        random-slope coordinates may differ.
         """
         self.group = group
         self.coordinate = coordinate
@@ -339,8 +358,7 @@ class AR1(ResidualCovariance):
             Constraint(1 - self.rho, Relation.GT, "rho < 1"),
             _positive(self.var),
         ]
-        if self.nugget != 0:
-            values.append(_nonnegative(self.nugget))
+        _append_nugget_constraint(values, self.nugget)
         return tuple(values)
 
 
@@ -462,13 +480,17 @@ class _SpatialCovariance(ResidualCovariance):
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
         values = [_positive(self.var), _positive(self.range)]
-        if self.nugget != 0:
-            values.append(_nonnegative(self.nugget))
+        _append_nugget_constraint(values, self.nugget)
         return tuple(values)
 
 
 class Exponential(_SpatialCovariance):
-    """Exponential spatial covariance."""
+    """Exponential spatial covariance.
+
+    ``coords`` names the coordinate columns used for the Euclidean distance,
+    ``group`` optionally gates the covariance to observations sharing a level,
+    and ``nugget`` is an optional non-negative zero-lag measurement error.
+    """
 
     def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
         """Return the covariance entry for a distance."""
@@ -476,7 +498,12 @@ class Exponential(_SpatialCovariance):
 
 
 class Gaussian(_SpatialCovariance):
-    """Gaussian spatial covariance."""
+    """Gaussian spatial covariance.
+
+    ``coords`` names the coordinate columns used for the Euclidean distance,
+    ``group`` optionally gates the covariance to observations sharing a level,
+    and ``nugget`` is an optional non-negative zero-lag measurement error.
+    """
 
     def entry_from_distance(self, distance: sp.Expr) -> sp.Expr:
         """Return the covariance entry for a distance."""
@@ -484,7 +511,12 @@ class Gaussian(_SpatialCovariance):
 
 
 class Matern(_SpatialCovariance):
-    """Matern spatial covariance for nu in {1/2, 3/2, 5/2}."""
+    """Matern spatial covariance for nu in {1/2, 3/2, 5/2}.
+
+    ``coords`` names the coordinate columns used for the Euclidean distance,
+    ``group`` optionally gates the covariance to observations sharing a level,
+    and ``nugget`` is an optional non-negative zero-lag measurement error.
+    """
 
     def __init__(
         self,

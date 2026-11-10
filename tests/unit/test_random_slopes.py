@@ -3,10 +3,10 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, BlockDiag, Diagonal, Scalar
+from symlmm.covariances import IID, BlockDiag, Diagonal, Scalar, Unstructured
 from symlmm.errors import CovarianceConstructionError
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept, RandomSlope
+from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
 
 def test_random_slope_closed_form():
@@ -18,9 +18,10 @@ def test_random_slope_closed_form():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[
-            RandomSlope(
+            RandomEffects(
                 group="subject",
-                coordinate="time",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
                 cov=_sd_corr(s0, s1, rho_b),
             )
         ],
@@ -43,11 +44,11 @@ def test_random_slope_within_false_uses_global_coordinate():
     s1 = sp.Symbol("s1", positive=True)
     rho_b = sp.Symbol("rho_b", real=True)
     sigma2 = sp.Symbol("sigma2", positive=True)
-    term = RandomSlope(
+    term = RandomEffects(
         group="subject",
-        coordinate="time",
+        intercept=True,
+        slopes=(RandomSlope("time", within=False),),
         cov=_sd_corr(s0, s1, rho_b),
-        within=False,
     )
     model = LMM(
         fixed=Fixed(intercept=b0),
@@ -68,8 +69,19 @@ def test_random_intercept_and_slope_terms_sum():
     model = LMM(
         fixed=Fixed(intercept=b0),
         random=[
-            RandomIntercept(group="subject", cov=Scalar(tau2)),
-            RandomSlope(group="subject", coordinate="time", cov=_sd_corr(s0, s1, rho_b)),
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Unstructured(
+                    sp.Matrix(
+                        [
+                            [tau2 + s0**2, s0 * s1 * rho_b],
+                            [s0 * s1 * rho_b, s1**2],
+                        ]
+                    )
+                ),
+            ),
         ],
         residual=IID(var=sigma2),
     )
@@ -119,14 +131,19 @@ def test_random_slope_rejects_non_2x2_covariance():
     tau2 = sp.Symbol("tau2", positive=True)
 
     with pytest.raises(CovarianceConstructionError, match="2x2"):
-        RandomSlope(group="subject", coordinate="time", cov=Scalar(tau2))
+        RandomEffects(
+            group="subject",
+            intercept=True,
+            slopes=(RandomSlope("time"),),
+            cov=Scalar(tau2),
+        )
 
 
 def test_random_intercept_rejects_non_scalar_covariance():
     a, b = sp.symbols("a b", positive=True)
 
     with pytest.raises(CovarianceConstructionError, match="1x1"):
-        RandomIntercept(group="subject", cov=Diagonal([a, b]))
+        RandomEffects(group="subject", intercept=True, cov=Diagonal([a, b]))
 
 
 def _sd_corr(s0, s1, rho):

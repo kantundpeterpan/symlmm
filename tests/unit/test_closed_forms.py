@@ -7,7 +7,7 @@ from symlmm.covariances import AR1, IID, Diagonal, Scalar
 from symlmm.errors import MissingFormError, ModelError
 from symlmm.model import LMM
 from symlmm.simplify import canonicalize
-from symlmm.specs import Fixed, Group, RandomIntercept, RandomSlope
+from symlmm.specs import Fixed, Group, RandomEffects, RandomSlope
 
 
 def test_random_intercept_closed_form():
@@ -16,7 +16,7 @@ def test_random_intercept_closed_form():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     i, j = model.indices()
@@ -117,7 +117,7 @@ def test_icc_for_random_intercept():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
     assert sp.simplify(model.icc(form="sum") - tau2 / (tau2 + sigma2)) == 0
@@ -149,7 +149,7 @@ def test_residual_group_registration_deduplicates():
     rho = sp.Symbol("rho", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
     )
 
@@ -162,7 +162,7 @@ def test_icc_requires_form():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
 
@@ -176,7 +176,7 @@ def test_icc_matrix_and_both_forms_return():
     sigma2 = sp.Symbol("sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
     )
 
@@ -189,7 +189,14 @@ def test_icc_random_slope_requires_coordinate():
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
         residual=IID(var=sigma2),
     )
     with pytest.raises(ModelError, match="icc requires at"):
@@ -201,9 +208,56 @@ def test_icc_random_slope_evaluates_at_given_coordinate():
     tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
     model = LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomSlope(group="subject", coordinate="time", cov=Diagonal([tau2, tau2]))],
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
         residual=IID(var=sigma2),
     )
     value = model.icc(at={"coordinate": 2}, form="sum")
     assert sp.simplify(value - (tau2 + 4 * tau2) / (tau2 + 4 * tau2 + sigma2)) == 0
     assert not value.has(sp.Indexed)
+
+
+def test_icc_multiple_slopes_require_each_coordinate_value():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"), RandomSlope("dose")),
+                cov=Diagonal([tau2, tau2, tau2]),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    with pytest.raises(ModelError, match="coordinate 'dose'"):
+        model.icc(at={"time": 2}, form="sum")
+
+
+@pytest.mark.parametrize("at", [{"coordinate": None}, {"time": None}])
+def test_icc_none_coordinate_value_raises_model_error(at):
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Diagonal([tau2, tau2]),
+            )
+        ],
+        residual=IID(var=sigma2),
+    )
+    with pytest.raises(ModelError, match="coordinate 'time'"):
+        model.icc(at=at, form="sum")

@@ -3,11 +3,11 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Scalar
+from symlmm.covariances import IID, Scalar, Unstructured
 from symlmm.errors import FormArityError, MissingFormError, UnsupportedForm
 from symlmm.forms import DualForm
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomIntercept
+from symlmm.specs import Fixed, RandomEffects, RandomSlope
 
 
 def _model():
@@ -16,7 +16,26 @@ def _model():
     sigma2 = sp.Symbol("sigma2", positive=True)
     return LMM(
         fixed=Fixed(intercept=b0),
-        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+    )
+
+
+def _joint_model():
+    b0 = sp.Symbol("b0")
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Unstructured.from_sd_corr([s0, s1], rho_b),
+            )
+        ],
         residual=IID(var=sigma2),
     )
 
@@ -102,6 +121,70 @@ def test_blup_cross_covariance_forms():
 
     with pytest.raises(UnsupportedForm):
         model.blup_cross_covariance(i, form="sum")
+
+
+def test_blup_joint_block_uses_full_random_dimension():
+    model = _joint_model()
+    n, q = model.dimensions()
+    assert q == 2 * model.levels("subject")
+    G = sp.MatrixSymbol("G", q, q)
+    Z = sp.MatrixSymbol("Z", n, q)
+    R = sp.MatrixSymbol("R", n, n)
+    y = sp.MatrixSymbol("y", n, 1)
+
+    mean = model.blup_mean(form="matrix")
+    assert mean.shape == (q, 1)
+    expected_mean = G * Z.T * model.matrix_covariance().inverse() * (y - model.matrix_mean())
+    assert mean == expected_mean
+
+    covariance = model.blup_covariance(form="matrix")
+    assert covariance.shape == (q, q)
+    expected_covariance = (G.inverse() + Z.T * R.inverse() * Z).inverse()
+    assert covariance == expected_covariance
+
+    i, _ = model.indices()
+    cross = model.blup_cross_covariance(i, form="matrix")
+    assert cross.shape == (1, q)
+    assert cross == Z[i, :] * G
+
+
+def test_blup_multiple_grouping_factors_include_joint_and_intercept_blocks():
+    b0 = sp.Symbol("b0")
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    tau_item = sp.Symbol("tau_item", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"),),
+                cov=Unstructured.from_sd_corr([s0, s1], rho_b),
+            ),
+            RandomEffects(group="item", intercept=True, cov=Scalar(tau_item)),
+        ],
+        residual=IID(var=sigma2),
+    )
+    n, q = model.dimensions()
+    assert q == 2 * model.levels("subject") + model.levels("item")
+    G = sp.MatrixSymbol("G", q, q)
+    Z = sp.MatrixSymbol("Z", n, q)
+    y = sp.MatrixSymbol("y", n, 1)
+
+    mean = model.blup_mean(form="matrix")
+    assert mean.shape == (q, 1)
+    expected_mean = G * Z.T * model.matrix_covariance().inverse() * (y - model.matrix_mean())
+    assert mean == expected_mean
+
+    covariance = model.blup_covariance(form="matrix")
+    assert covariance.shape == (q, q)
+
+    i, _ = model.indices()
+    cross = model.blup_cross_covariance(i, form="matrix")
+    assert cross.shape == (1, q)
+    assert cross == Z[i, :] * G
 
 
 def test_blup_requires_form():
