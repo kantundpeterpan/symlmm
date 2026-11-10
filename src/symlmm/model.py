@@ -571,6 +571,17 @@ class LMM(IndexedModel):
         self.occasion_count()
         return count
 
+    def _entry_row(self, group: Any, occasion: Any) -> Any:
+        """Return the group-block row for canonical `occasion`."""
+        if not self._dense:
+            return occasion
+        factor = self._require_group_index()
+        codes = self._dense_occasion_codes(self._group_spec(factor))
+        for position, row in enumerate(self._group_rows(group)):
+            if codes[row] == occasion:
+                return position
+        raise NotDefined(f"occasion {occasion!r} is not present in group {group!r}")
+
     def group_mean(self, group: Any) -> Any:
         """Return E[Y_group]."""
         coefficients = self.fixed.coefficients()
@@ -600,19 +611,24 @@ class LMM(IndexedModel):
 
     def entry_mean(self, group: Any, occasion: Any) -> Any:
         """Return E[Y_group,occasion]."""
-        return self.group_mean(group)[occasion, 0]
+        return self.group_mean(group)[self._entry_row(group, occasion), 0]
 
     def entry_covariance(self, group: Any, t1: Any, t2: Any) -> Any:
         """Return Cov(Y_group,t1, Y_group,t2)."""
-        return self.group_covariance(group)[t1, t2]
+        row1 = self._entry_row(group, t1)
+        row2 = self._entry_row(group, t2)
+        return self.group_covariance(group)[row1, row2]
 
     def entry_cross_covariance(self, group: Any, t1: Any, other: Any, t2: Any) -> Any:
         """Return Cov(Y_group,t1, Y_other,t2)."""
-        return self.group_cross_covariance(group, other)[t1, t2]
+        row1 = self._entry_row(group, t1)
+        row2 = self._entry_row(other, t2)
+        return self.group_cross_covariance(group, other)[row1, row2]
 
     def time_mean(self, occasion: Any) -> Any:
         """Return E[Y_{.occasion}] for a concrete balanced panel."""
         count = self._occasion_moment_group_count()
+        self._require_single_grouping_factor()
         entries = [self.entry_mean(group, occasion) for group in range(count)]
         return sp.Matrix(count, 1, entries)
 

@@ -10,7 +10,7 @@ from symlmm.canonical import (
     group_residual,
     group_size_symbol,
 )
-from symlmm.covariances import IID, Scalar
+from symlmm.covariances import AR1, IID, Scalar
 from symlmm.errors import NotDefined
 from symlmm.model import LMM
 from symlmm.specs import Covariate, Fixed, Group, RandomEffects
@@ -40,6 +40,19 @@ def _two_factor_model() -> LMM:
             RandomEffects(group="item", intercept=True, cov=Scalar(omega2)),
         ],
         residual=IID(var=sigma2),
+        coordinate="time",
+    )
+
+
+def _slope_ar1_model() -> LMM:
+    b0, b1 = sp.symbols("b0 b1")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    rho = sp.Symbol("rho", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0, slopes={"time": b1}),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="time", var=sigma2, rho=rho),
         coordinate="time",
     )
 
@@ -261,6 +274,46 @@ def test_group_mean_and_covariance_blocks():
     assert model.group_covariance(g) == Z * G * Z.T + model.residual_covariance(g)
 
 
+def test_group_mean_with_no_fixed_effects_has_group_rows():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    g = sp.Symbol("g", integer=True)
+
+    assert model.group_mean(g).shape == (model.group_size(g), 1)
+
+    dense = model.dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 1])
+    assert dense.group_mean(0) == sp.zeros(2, 1)
+
+
+def test_dense_moments_use_canonical_occasion_codes_for_unsorted_panels():
+    model = _slope_ar1_model().dense(
+        subject=[0, 0, 0, 1, 1, 1],
+        time=[2, 0, 1, 2, 0, 1],
+    )
+    b0, b1 = model.fixed.coefficients()
+    tau2 = model.random[0].cov.var
+    sigma2 = model.residual.var
+    rho = model.residual.rho
+
+    assert model.entry_mean(0, 0) == b0
+    assert model.entry_mean(0, 1) == b0 + b1
+    assert model.entry_mean(0, 2) == b0 + 2 * b1
+    assert model.time_mean(0) == sp.Matrix([b0, b0])
+    assert model.time_mean(2) == sp.Matrix([b0 + 2 * b1, b0 + 2 * b1])
+
+    lag_two_covariance = tau2 + sigma2 * rho**2
+    assert model.entry_covariance(0, 0, 2) == lag_two_covariance
+    assert model.entry_cross_covariance(0, 0, 0, 2) == lag_two_covariance
+    assert model.time_covariance(0, 2) == sp.diag(lag_two_covariance, lag_two_covariance)
+    assert model.time_covariance(0, 2)[0, 1] == 0
+
+
 def test_cross_group_covariance_is_zero():
     model = _random_intercept_model()
     g, h = sp.symbols("g h", integer=True)
@@ -339,3 +392,14 @@ def test_occasion_column_covariance_rejects_multiple_grouping_factors():
 
     with pytest.raises(NotDefined, match="single grouping factor"):
         model.time_covariance(0, 1)
+
+
+def test_occasion_column_mean_rejects_multiple_grouping_factors():
+    model = _two_factor_model().dense(
+        subject=[0, 0, 1, 1],
+        item=[0, 1, 0, 1],
+        time=[0, 1, 0, 1],
+    )
+
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.time_mean(0)
