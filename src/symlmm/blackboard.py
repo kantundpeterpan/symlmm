@@ -242,7 +242,7 @@ class GroupEffectSymbols:
         known = self._by_expression.get(expression)
         if known is not None:
             return self._canonical_group(known)
-        raise ModelError(f"not a registered random-effect atom: {expression!r}")
+        raise NotDefined("random-effect atom does not belong to the primary grouping factor")
 
 
 @dataclass(frozen=True)

@@ -216,9 +216,9 @@ def test_unknown_random_effect_atoms_are_rejected():
     h = sp.Symbol("h", integer=True)
     unknown = sp.MatrixSymbol("b_unknown", 1, 1)
 
-    with pytest.raises(ModelError, match="registered"):
+    with pytest.raises(NotDefined, match="primary"):
         syms.Var(unknown)
-    with pytest.raises(ModelError, match="registered"):
+    with pytest.raises(NotDefined, match="primary"):
         syms.Var(model.random_effect(h))
 
 
@@ -232,6 +232,8 @@ def test_multi_factor_effect_symbols_reject_non_primary_groups():
         syms.b[secondary]
     with pytest.raises(NotDefined, match="primary"):
         syms.b[Group("item")]
+    with pytest.raises(NotDefined, match="primary"):
+        syms.Var(model.random_effect(secondary))
 
 
 def test_response_random_effect_cross_covariance():
