@@ -247,3 +247,95 @@ def test_canonical_helpers_build_named_symbols():
     assert group_random_design(g, size, 2) == sp.MatrixSymbol("Z_g", size, 2)
     assert group_residual(g, size) == sp.MatrixSymbol("R_g", size, size)
     assert group_coefficients(g, 2) == sp.MatrixSymbol("b_g", 2, 1)
+
+
+def test_group_mean_and_covariance_blocks():
+    model = _random_intercept_model()
+    g = sp.Symbol("g", integer=True)
+    beta = sp.Matrix(model.fixed.coefficients())
+    X = model.fixed_design(g)
+    Z = model.random_design(g)
+    G = model._primary_random_term().cov.dense()
+
+    assert model.group_mean(g) == X * beta
+    assert model.group_covariance(g) == Z * G * Z.T + model.residual_covariance(g)
+
+
+def test_cross_group_covariance_is_zero():
+    model = _random_intercept_model()
+    g, h = sp.symbols("g h", integer=True)
+
+    assert model.group_cross_covariance(g, h) == sp.ZeroMatrix(
+        model.group_size(g), model.group_size(h)
+    )
+    assert model.group_cross_covariance(g, g) == model.group_covariance(g)
+
+
+def test_entry_moments_are_group_components():
+    model = _random_intercept_model()
+    g = sp.Symbol("g", integer=True)
+    mean = model.group_mean(g)
+    cov = model.group_covariance(g)
+
+    assert model.entry_mean(g, 0) == mean[0, 0]
+    assert model.entry_covariance(g, 0, 1) == cov[0, 1]
+    assert model.entry_cross_covariance(g, 0, g, 1) == cov[0, 1]
+
+
+def test_occasion_column_moments_dense():
+    model = _random_intercept_model().dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 1])
+    t, s = 0, 1
+
+    assert model.time_mean(t).shape == (2, 1)
+    assert model.time_covariance(t, s).shape == (2, 2)
+    assert model.time_covariance(t, s)[0, 0] == model.entry_covariance(0, t, s)
+    assert model.time_covariance(t, s)[0, 1] == 0
+
+
+def test_occasion_column_moments_require_concrete_group_count():
+    model = _random_intercept_model()
+    t = sp.Symbol("t", integer=True)
+
+    with pytest.raises(NotDefined, match="concrete group count"):
+        model.time_mean(t)
+    with pytest.raises(NotDefined, match="concrete group count"):
+        model.time_covariance(t, t)
+
+
+def test_occasion_column_moments_require_balanced_dense_panel():
+    model = _random_intercept_model().dense(subject=[0, 0, 1], time=[0, 1, 0])
+
+    with pytest.raises(NotDefined, match="balanced"):
+        model.time_mean(0)
+    with pytest.raises(NotDefined, match="balanced"):
+        model.time_covariance(0, 1)
+
+
+def test_group_covariance_uses_primary_random_term_for_multiple_factors():
+    model = _two_factor_model()
+    g = sp.Symbol("g", integer=True)
+    Z = model.random_design(g)
+    G = model.random[0].cov.dense()
+
+    assert model.group_covariance(g) == Z * G * Z.T + model.residual_covariance(g)
+
+
+def test_group_cross_covariance_rejects_multiple_grouping_factors():
+    model = _two_factor_model()
+    g, h = sp.symbols("g h", integer=True)
+
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.group_cross_covariance(g, h)
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.group_cross_covariance(g, g)
+
+
+def test_occasion_column_covariance_rejects_multiple_grouping_factors():
+    model = _two_factor_model().dense(
+        subject=[0, 0, 1, 1],
+        item=[0, 1, 0, 1],
+        time=[0, 1, 0, 1],
+    )
+
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.time_covariance(0, 1)

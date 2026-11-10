@@ -557,6 +557,71 @@ class LMM(IndexedModel):
         q = 0 if term is None else term.dim
         return group_coefficients(group, q)
 
+    def _require_single_grouping_factor(self) -> None:
+        """Raise `NotDefined` when random terms use more than one factor."""
+        groups = {term.group for term in self.random}
+        if len(groups) > 1:
+            raise NotDefined("canonical group blocks require a single grouping factor")
+
+    def _occasion_moment_group_count(self) -> int:
+        """Return a concrete group count after validating the balanced panel."""
+        count = self.group_count()
+        if not isinstance(count, int):
+            raise NotDefined("occasion-column moments require a concrete group count")
+        self.occasion_count()
+        return count
+
+    def group_mean(self, group: Any) -> Any:
+        """Return E[Y_group]."""
+        coefficients = self.fixed.coefficients()
+        beta = sp.Matrix(len(coefficients), 1, coefficients)
+        return self.fixed_design(group) * beta
+
+    def group_covariance(self, group: Any) -> Any:
+        """Return Cov(Y_group) for the primary grouping factor."""
+        term = self._primary_random_term()
+        residual = self.residual_covariance(group)
+        if term is None:
+            return residual
+        Z = self.random_design(group)
+        G = term.cov.dense()
+        return Z * G * Z.T + residual
+
+    def group_cross_covariance(self, group: Any, other: Any) -> Any:
+        """Return Cov(Y_group, Y_other); zero for a single grouping factor."""
+        self._require_single_grouping_factor()
+        if group == other:
+            return self.group_covariance(group)
+        rows = self.group_size(group)
+        columns = self.group_size(other)
+        if isinstance(rows, int) and isinstance(columns, int):
+            return sp.zeros(rows, columns)
+        return sp.ZeroMatrix(rows, columns)
+
+    def entry_mean(self, group: Any, occasion: Any) -> Any:
+        """Return E[Y_group,occasion]."""
+        return self.group_mean(group)[occasion, 0]
+
+    def entry_covariance(self, group: Any, t1: Any, t2: Any) -> Any:
+        """Return Cov(Y_group,t1, Y_group,t2)."""
+        return self.group_covariance(group)[t1, t2]
+
+    def entry_cross_covariance(self, group: Any, t1: Any, other: Any, t2: Any) -> Any:
+        """Return Cov(Y_group,t1, Y_other,t2)."""
+        return self.group_cross_covariance(group, other)[t1, t2]
+
+    def time_mean(self, occasion: Any) -> Any:
+        """Return E[Y_{.occasion}] for a concrete balanced panel."""
+        count = self._occasion_moment_group_count()
+        entries = [self.entry_mean(group, occasion) for group in range(count)]
+        return sp.Matrix(count, 1, entries)
+
+    def time_covariance(self, t1: Any, t2: Any) -> Any:
+        """Return Cov(Y_{.t1}, Y_{.t2}) as a diagonal group matrix."""
+        count = self._occasion_moment_group_count()
+        self._require_single_grouping_factor()
+        return sp.diag(*(self.entry_covariance(group, t1, t2) for group in range(count)))
+
     def dense(
         self,
         observations: Mapping[str, Sequence[Any]] | None = None,
