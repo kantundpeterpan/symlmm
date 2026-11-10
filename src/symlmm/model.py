@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
-from .errors import FormArityError, ModelError
+from .errors import FormArityError, ModelError, NotDefined
 from .specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects
 from .symbols import observation_index
 
@@ -403,6 +403,122 @@ class LMM(IndexedModel):
         """Return observations and total random-coefficient dimension."""
         q = sum(self.levels(term.group.name) * term.dim for term in self.random)
         return self.n, q
+
+    @property
+    def primary_group(self) -> str | None:
+        """Return the primary grouping factor for canonical group indexing."""
+        definition = self.primary_group_definition
+        if definition is None:
+            return None
+        return definition.name
+
+    def _require_group_index(self) -> str:
+        """Return the primary grouping-factor name or raise `NotDefined`."""
+        factor = self.primary_group
+        if self.group_index is None or factor is None:
+            raise NotDefined("canonical group indexing requires a grouping factor")
+        return factor
+
+    def _require_occasion_index(self) -> None:
+        """Raise `NotDefined` when canonical occasion indexing is unavailable."""
+        if self.occasion_index is None:
+            raise NotDefined("canonical occasion indexing requires a coordinate")
+
+    def _group_rows(self, group: Any) -> list[int]:
+        """Return dense observation rows belonging to `group`."""
+        factor = self._require_group_index()
+        if not self._dense:
+            raise ModelError("group rows are available only in dense mode")
+        return [k for k in range(self.n) if self.group(k, factor) == group]
+
+    def group_count(self) -> Any:
+        """Return the number of groups (symbolic or dense)."""
+        factor = self._require_group_index()
+        if self._dense:
+            return len(set(self._dense_group_codes(self._group_spec(factor))))
+        return sp.Symbol("m", positive=True, integer=True)
+
+    def occasion_count(self) -> Any:
+        """Return the number of occasions for a balanced panel."""
+        self._require_occasion_index()
+        factor = self._require_group_index()
+        if self._dense:
+            groups = set(self._dense_group_codes(self._group_spec(factor)))
+            counts = {len(self._group_rows(group)) for group in groups}
+            if len(counts) != 1:
+                raise NotDefined("occasion vectors require a balanced panel")
+            return counts.pop()
+        return sp.Symbol("T", positive=True, integer=True)
+
+    def group_size(self, group: Any) -> Any:
+        """Return the number of observations in `group`."""
+        self._require_group_index()
+        if self._dense:
+            return len(self._group_rows(group))
+        from .canonical import group_size_symbol
+
+        return group_size_symbol(group)
+
+    def response(self, group: Any, occasion: Any = None) -> Any:
+        """Return Y_group (vector) or Y_group,occasion (scalar)."""
+        self._require_group_index()
+        if occasion is not None:
+            self._require_occasion_index()
+        from .canonical import group_entry, group_response
+
+        vector = group_response(group, self.group_size(group))
+        if occasion is None:
+            return vector
+        return group_entry(group, self.group_size(group), occasion)
+
+    def response_matrix(self) -> Any:
+        """Return the balanced-panel response matrix Y (groups x occasions)."""
+        self._require_group_index()
+        self._require_occasion_index()
+        return sp.MatrixSymbol("Y", self.group_count(), self.occasion_count())
+
+    def time_response(self, occasion: Any) -> Any:
+        """Return the occasion column vector Y[:, occasion]."""
+        return self.response_matrix()[:, occasion]
+
+    def fixed_design(self, group: Any) -> Any:
+        """Return X_group."""
+        self._require_group_index()
+        from .canonical import group_mean
+
+        if self._dense:
+            rows = self._group_rows(group)
+            return self.matrix_x()[rows, :]
+        return group_mean(group, self.group_size(group), len(self.fixed.coefficients()))
+
+    def random_design(self, group: Any) -> Any:
+        """Return Z_group."""
+        self._require_group_index()
+        from .canonical import group_random_design
+
+        q = sum(term.dim for term in self.random)
+        if self._dense:
+            rows = self._group_rows(group)
+            return self.matrix_z()[rows, :]
+        return group_random_design(group, self.group_size(group), q)
+
+    def residual_covariance(self, group: Any) -> Any:
+        """Return R_group."""
+        self._require_group_index()
+        from .canonical import group_residual
+
+        if self._dense:
+            rows = self._group_rows(group)
+            return self.matrix_r()[rows, :][:, rows]
+        return group_residual(group, self.group_size(group))
+
+    def random_effect(self, group: Any) -> Any:
+        """Return b_group."""
+        self._require_group_index()
+        from .canonical import group_coefficients
+
+        q = sum(term.dim for term in self.random)
+        return group_coefficients(group, q)
 
     def dense(
         self,
