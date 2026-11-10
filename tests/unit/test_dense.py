@@ -4,7 +4,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import AR1, IID, Diagonal, Scalar
-from symlmm.errors import ModelError
+from symlmm.errors import ModelError, UnsupportedForm
 from symlmm.model import LMM
 from symlmm.specs import Fixed, RandomIntercept, RandomSlope
 
@@ -135,6 +135,26 @@ def test_within_dense_same_and_cross_group():
         == 0
     )
     assert dense.covariance(1, 2, form="sum") == 0
+
+
+def test_within_dense_validates_factor_and_rejects_non_sum_forms():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2, rho = sp.symbols("tau2 sigma2 rho", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=AR1(group="subject", coordinate="visit_time", var=sigma2, rho=rho),
+        coordinate="visit_time",
+        n=4,
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], visit_time=[0, 1, 0, 1])
+
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        dense.covariance(0, 1, form="sum", within="missing")
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        dense.variogram(0, 1, kind="conditional", form="sum", within="missing")
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        dense.covariance(0, 1, form="matrix", within="subject")
 
 
 def test_dense_requires_consistent_column_lengths():

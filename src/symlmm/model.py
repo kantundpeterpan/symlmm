@@ -444,7 +444,14 @@ class LMM(IndexedModel):
         return expr.subs({self.group(i, within): common, self.group(j, within): common})
 
     def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
-        """Return the structured sum-form covariance entry."""
+        """Return the structured sum-form covariance entry.
+
+        ``within`` validates and resolves the named factor's delta in symbolic
+        mode. Dense models keep their actual concrete level codes; ``within``
+        cannot override them.
+        """
+        if within is not None:
+            self._group_spec(within)
         total = self.residual.entry(i, j, self)
         for term in self.random:
             total += self._random_term_entry(term, i, j)
@@ -474,7 +481,11 @@ class LMM(IndexedModel):
         form: str | Form | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return the marginal covariance in the requested form."""
+        """Return the marginal covariance in the requested form.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .moments import covariance
 
         return covariance(self, i, j, form, within)
@@ -486,7 +497,11 @@ class LMM(IndexedModel):
         form: str | Form | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return the marginal variance vector or entry in the requested form."""
+        """Return the marginal variance vector or entry in the requested form.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .moments import variance
 
         return variance(self, i, form, within)
@@ -499,7 +514,11 @@ class LMM(IndexedModel):
         form: str | Form | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return the marginal correlation in the requested form."""
+        """Return the marginal correlation in the requested form.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .moments import correlation
 
         return correlation(self, i, j, form, within)
@@ -547,7 +566,11 @@ class LMM(IndexedModel):
         form: str | Form | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return a raw, residual, or conditional variogram entry."""
+        """Return a raw, residual, or conditional variogram entry.
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .variogram import variogram
 
         return variogram(self, i, j, kind, form, within)
@@ -560,7 +583,11 @@ class LMM(IndexedModel):
         form: str | Form | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return the covariogram entry Cov(y_i, y_j)."""
+        """Return the covariogram entry Cov(y_i, y_j).
+
+        ``within`` resolves a grouping factor's delta and is only supported for
+        ``form='sum'`` entries.
+        """
         from .variogram import covariogram
 
         return covariogram(self, i, j, form, within)

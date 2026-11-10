@@ -6,7 +6,7 @@ from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
-from .errors import FormArityError
+from .errors import FormArityError, UnsupportedForm
 from .forms import DualForm, EntryMap, Form, require_form
 
 
@@ -37,8 +37,13 @@ def covariance(
     form: str | Form | None = None,
     within: str | None = None,
 ) -> Any:
-    """Return the marginal covariance."""
+    """Return the marginal covariance.
+
+    ``within`` is only supported for sum-form entries.
+    """
     form = require_form(form)
+    if within is not None and form is not Form.SUM:
+        raise UnsupportedForm("within is only defined for sum-form entries")
     if (i is None) != (j is None):
         raise FormArityError("covariance requires both indices or neither")
     if i is None:
@@ -67,8 +72,13 @@ def variance(
     form: str | Form | None = None,
     within: str | None = None,
 ) -> Any:
-    """Return the marginal variance vector or entry."""
+    """Return the marginal variance vector or entry.
+
+    ``within`` is only supported for sum-form entries.
+    """
     form = require_form(form)
+    if within is not None and form is not Form.SUM:
+        raise UnsupportedForm("within is only defined for sum-form entries")
     if i is None:
         if form is Form.SUM:
             raise FormArityError("variance requires an index for form='sum'")
@@ -97,8 +107,13 @@ def correlation(
     form: str | Form | None = None,
     within: str | None = None,
 ) -> Any:
-    """Return the marginal correlation."""
+    """Return the marginal correlation.
+
+    ``within`` is only supported for sum-form entries.
+    """
     form = require_form(form)
+    if within is not None and form is not Form.SUM:
+        raise UnsupportedForm("within is only defined for sum-form entries")
     if (i is None) != (j is None):
         raise FormArityError("correlation requires both indices or neither")
     corr = sp.MatrixSymbol("Corr", model.n, model.n)

@@ -6,7 +6,7 @@ from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
-from .errors import InvalidKindError
+from .errors import InvalidKindError, UnsupportedForm
 from .forms import DualForm, Form, require_form
 from .moments import covariance as _covariance
 
@@ -29,8 +29,10 @@ def _conditional_variogram(model: Any, i: Any, j: Any, within: str | None = None
         + model.residual.entry(j, j, model)
         - 2 * model.residual.entry(i, j, model)
     ) / 2
-    if within is not None and not model._dense:
-        value = model._apply_within(value, i, j, within)
+    if within is not None:
+        model._group_spec(within)
+        if not model._dense:
+            value = model._apply_within(value, i, j, within)
     return value
 
 
@@ -41,7 +43,13 @@ def covariogram(
     form: str | Form | None = None,
     within: str | None = None,
 ) -> Any:
-    """Return Cov(y_i, y_j); alias of ``moments.covariance``."""
+    """Return Cov(y_i, y_j); alias of ``moments.covariance``.
+
+    ``within`` is only supported for sum-form entries.
+    """
+    form = require_form(form)
+    if within is not None and form is not Form.SUM:
+        raise UnsupportedForm("within is only defined for sum-form entries")
     return _covariance(model, i, j, form, within)
 
 
@@ -53,8 +61,13 @@ def variogram(
     form: str | Form | None = None,
     within: str | None = None,
 ) -> Any:
-    """Return a raw, residual, or conditional variogram entry."""
+    """Return a raw, residual, or conditional variogram entry.
+
+    ``within`` is only supported for sum-form entries.
+    """
     form = require_form(form)
+    if within is not None and form is not Form.SUM:
+        raise UnsupportedForm("within is only defined for sum-form entries")
     if kind not in _VALID_KINDS:
         raise InvalidKindError(f"invalid variogram kind: {kind!r}")
     if kind == "residual":

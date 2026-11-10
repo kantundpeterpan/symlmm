@@ -4,7 +4,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import AR1, IID, Scalar
-from symlmm.errors import InvalidKindError, MissingFormError
+from symlmm.errors import InvalidKindError, MissingFormError, ModelError, UnsupportedForm
 from symlmm.forms import DualForm
 from symlmm.model import LMM
 from symlmm.specs import Fixed, RandomIntercept
@@ -158,6 +158,28 @@ def test_covariogram_within_matches_covariance():
     covariogram = model.covariogram(i, j, form="sum", within="subject")
     covariance = model.covariance(i, j, form="sum", within="subject")
     assert sp.simplify(covariogram - covariance) == 0
+
+
+def test_within_rejects_non_sum_forms():
+    model = _ar1_model()
+    i, j = model.indices()
+
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.variogram(i, j, kind="residual", form="matrix", within="subject")
+    with pytest.raises(UnsupportedForm, match="sum-form"):
+        model.covariogram(i, j, form="both", within="subject")
+
+
+def test_within_unknown_factor_raises_model_error():
+    model = _ar1_model()
+    i, j = model.indices()
+
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.variogram(i, j, kind="residual", form="sum", within="missing")
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.variogram(i, j, kind="conditional", form="sum", within="missing")
+    with pytest.raises(ModelError, match="unknown grouping factor"):
+        model.covariogram(i, j, form="sum", within="missing")
 
 
 def test_covariogram_delegates_to_covariance():
