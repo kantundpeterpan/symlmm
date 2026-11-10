@@ -304,8 +304,15 @@ def test_dense_moments_use_canonical_occasion_codes_for_unsorted_panels():
     assert model.entry_mean(0, 0) == b0
     assert model.entry_mean(0, 1) == b0 + b1
     assert model.entry_mean(0, 2) == b0 + 2 * b1
+    assert model.group_mean(0)[:, 0] == sp.Matrix([b0, b0 + b1, b0 + 2 * b1])
     assert model.time_mean(0) == sp.Matrix([b0, b0])
     assert model.time_mean(2) == sp.Matrix([b0 + 2 * b1, b0 + 2 * b1])
+
+    for group in range(2):
+        for t in range(3):
+            assert model.group_mean(group)[t, 0] == model.entry_mean(group, t)
+            for s in range(3):
+                assert model.group_covariance(group)[t, s] == model.entry_covariance(group, t, s)
 
     lag_two_covariance = tau2 + sigma2 * rho**2
     assert model.entry_covariance(0, 0, 2) == lag_two_covariance

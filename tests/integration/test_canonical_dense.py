@@ -18,16 +18,17 @@ def _balanced_model() -> LMM:
         coordinate="time",
         n=4,
     )
-    return model.dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 1])
+    return model.dense(subject=[0, 0, 1, 1], time=[1, 0, 1, 0])
 
 
 def test_dense_group_moments_match_matrix_submatrices():
     model = _balanced_model()
     mean = model.matrix_mean()
     covariance = model.matrix_covariance()
-    rows = [model._group_rows(group) for group in range(model.group_count())]
+    rows = [[1, 0], [3, 2]]
 
     for group, indices in enumerate(rows):
+        assert model._group_rows(group) == indices
         assert model.group_mean(group) == mean[indices, :]
         assert model.group_covariance(group) == covariance[indices, :][:, indices]
 
@@ -41,8 +42,8 @@ def test_dense_occasion_moments_match_group_entries():
     model = _balanced_model()
     t, s = 0, 1
 
-    expected_mean = sp.Matrix([model.entry_mean(group, t) for group in range(2)])
-    expected_covariance = sp.diag(*(model.entry_covariance(group, t, s) for group in range(2)))
+    expected_mean = sp.Matrix([model.group_mean(group)[t, 0] for group in range(2)])
+    expected_covariance = sp.diag(*(model.group_covariance(group)[t, s] for group in range(2)))
 
     assert model.time_mean(t) == expected_mean
     assert model.time_covariance(t, s) == expected_covariance

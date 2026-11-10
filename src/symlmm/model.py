@@ -427,11 +427,15 @@ class LMM(IndexedModel):
         return definition
 
     def _group_rows(self, group: Any) -> list[int]:
-        """Return dense observation rows belonging to `group`."""
+        """Return dense observation rows belonging to `group` in canonical order."""
         factor = self._require_group_index()
         if not self._dense:
             raise ModelError("group rows are available only in dense mode")
-        return [k for k in range(self.n) if self.group(k, factor) == group]
+        rows = [k for k in range(self.n) if self.group(k, factor) == group]
+        if self.occasion_index is None:
+            return rows
+        codes = self._dense_occasion_codes(self._group_spec(factor))
+        return sorted(rows, key=lambda row: codes[row])
 
     def _primary_random_term(self) -> RandomEffects | None:
         """Return the primary grouping factor's random-effects term, if any."""
