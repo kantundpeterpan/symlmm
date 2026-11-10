@@ -50,6 +50,10 @@ class NotDefined(ModelError):
     """Raised when a quantity is undefined for a model class."""
 
 
+class UnsupportedMoment(ModelError, ValueError):
+    """Raised when the blackboard moment engine cannot evaluate an expression."""
+
+
 class UnresolvedSymbols(ModelError):
     """Raised when numeric evaluation still has free symbols."""
 
