@@ -8,7 +8,6 @@ from symlmm.canonical import (
     group_mean,
     group_random_design,
     group_residual,
-    group_response,
     group_size_symbol,
 )
 from symlmm.covariances import IID, Scalar
@@ -26,6 +25,22 @@ def _random_intercept_model(coordinate: str | None = "time") -> LMM:
         random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
         residual=IID(var=sigma2),
         coordinate=coordinate,
+    )
+
+
+def _two_factor_model() -> LMM:
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    omega2 = sp.Symbol("omega2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(group="subject", intercept=True, cov=Scalar(tau2)),
+            RandomEffects(group="item", intercept=True, cov=Scalar(omega2)),
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
     )
 
 
@@ -56,12 +71,18 @@ def test_group_size_symbolic_and_dense():
     assert dense.group_size(1) == 1
 
 
-def test_response_is_group_vector_and_entry_is_scalar():
+def test_response_uses_canonical_matrix_slices():
     model = _random_intercept_model()
     g = sp.Symbol("g", integer=True)
-    assert model.response(g).shape == (model.group_size(g), 1)
-    assert model.response(g, 0).shape == (1, 1)
-    assert model.response(g, 0) == model.response(g)[0, 0]
+    t = sp.Symbol("t", integer=True)
+    matrix = model.response_matrix()
+
+    assert model.response(g) == matrix[g, :]
+    assert model.response(g).shape == (1, model.occasion_count())
+    assert model.time_response(t) == matrix[:, t]
+    assert model.time_response(t).shape == (model.group_count(), 1)
+    assert model.response(g, t) == matrix[g, t]
+    assert not hasattr(model.response(g, t), "shape")
 
 
 def test_design_and_covariance_blocks():
@@ -85,7 +106,7 @@ def test_response_matrix_and_occasion_column():
     t = sp.Symbol("t", integer=True)
 
     assert model.response_matrix().shape == (model.group_count(), model.occasion_count())
-    assert model.response(g).shape == (model.group_size(g), 1)
+    assert model.response(g).shape == (1, model.occasion_count())
     assert model.time_response(t).shape == (model.group_count(), 1)
 
 
@@ -107,8 +128,37 @@ def test_group_and_occasion_counts():
     assert dense.occasion_count() == 2
 
 
+def test_dense_occasion_count_uses_distinct_occasion_values():
+    dense = _random_intercept_model().dense(
+        subject=[0, 0, 0, 1, 1, 1],
+        time=[0, 1, 2, 2, 0, 1],
+    )
+
+    assert dense.occasion_count() == 3
+
+
+def test_dense_occasion_count_rejects_duplicate_occasions():
+    dense = _random_intercept_model().dense(
+        subject=[0, 0, 1, 1],
+        time=[0, 0, 0, 1],
+    )
+
+    with pytest.raises(NotDefined, match="balanced"):
+        dense.occasion_count()
+
+
+def test_dense_occasion_count_rejects_different_occasion_sets():
+    dense = _random_intercept_model().dense(
+        subject=[0, 0, 1, 1],
+        time=[0, 1, 2, 3],
+    )
+
+    with pytest.raises(NotDefined, match="balanced"):
+        dense.occasion_count()
+
+
 def test_dense_occasion_count_requires_balanced_panel():
-    dense = _random_intercept_model().dense(subject=[0, 0, 1], time=[0, 1, 2])
+    dense = _random_intercept_model().dense(subject=[0, 0, 1], time=[0, 1, 0])
 
     with pytest.raises(NotDefined, match="balanced"):
         dense.occasion_count()
@@ -116,15 +166,39 @@ def test_dense_occasion_count_requires_balanced_panel():
 
 def test_dense_blocks_select_primary_group_rows():
     model = _random_intercept_model()
-    dense = model.dense(subject=[0, 0, 1], time=[0, 1, 0])
-    rows = [0, 1]
+    dense = model.dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 1])
+    first = [0, 1]
+    second = [2, 3]
 
-    assert dense.fixed_design(0) == dense.matrix_x()[rows, :]
-    assert dense.random_design(0) == dense.matrix_z()[rows, :]
-    assert dense.residual_covariance(0) == dense.matrix_r()[rows, :][:, rows]
+    assert dense.fixed_design(0) == dense.matrix_x()[first, :]
+    assert dense.random_design(0) == dense.matrix_z()[first, 0:1]
+    assert dense.random_design(1) == dense.matrix_z()[second, 1:2]
+    assert dense.residual_covariance(0) == dense.matrix_r()[first, :][:, first]
     assert dense.random_effect(0).shape == (1, 1)
-    assert dense.response(0).shape == (2, 1)
-    assert dense.response(0, 0) == dense.response(0)[0, 0]
+    assert dense.response(0) == dense.response_matrix()[0, :]
+    assert dense.response(0, 0) == dense.response_matrix()[0, 0]
+    assert not hasattr(dense.response(0, 0), "shape")
+
+
+def test_random_design_and_effect_use_primary_group_term_dimension():
+    model = _two_factor_model()
+    g = sp.Symbol("g", integer=True)
+
+    assert model.random[0].dim == 1
+    assert model.random_design(g).shape == (model.group_size(g), 1)
+    assert model.random_effect(g).shape == (1, 1)
+
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        item=[0, 1, 0, 1],
+        time=[0, 1, 0, 1],
+    )
+    first = [0, 1]
+    second = [2, 3]
+
+    assert dense.random_design(0).shape == (2, 1)
+    assert dense.random_design(0) == dense.matrix_z()[first, 0:1]
+    assert dense.random_design(1) == dense.matrix_z()[second, 1:2]
 
 
 def test_group_queries_require_group_index():
@@ -159,9 +233,9 @@ def test_occasion_queries_require_occasion_index():
     with pytest.raises(NotDefined):
         model.time_response(t)
     with pytest.raises(NotDefined):
+        model.response(g)
+    with pytest.raises(NotDefined):
         model.response(g, 0)
-
-    assert model.response(g).shape == (model.group_size(g), 1)
 
 
 def test_canonical_helpers_build_named_symbols():
@@ -169,7 +243,6 @@ def test_canonical_helpers_build_named_symbols():
     size = group_size_symbol(g)
 
     assert size == sp.Symbol("n_g", positive=True, integer=True)
-    assert group_response(g, size) == sp.MatrixSymbol("Y_g", size, 1)
     assert group_mean(g, size, 2) == sp.MatrixSymbol("X_g", size, 2)
     assert group_random_design(g, size, 2) == sp.MatrixSymbol("Z_g", size, 2)
     assert group_residual(g, size) == sp.MatrixSymbol("R_g", size, size)

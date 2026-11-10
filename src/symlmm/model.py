@@ -419,10 +419,12 @@ class LMM(IndexedModel):
             raise NotDefined("canonical group indexing requires a grouping factor")
         return factor
 
-    def _require_occasion_index(self) -> None:
-        """Raise `NotDefined` when canonical occasion indexing is unavailable."""
-        if self.occasion_index is None:
+    def _require_occasion_index(self) -> Covariate:
+        """Return the canonical occasion definition or raise `NotDefined`."""
+        definition = self.occasion_definition
+        if self.occasion_index is None or definition is None:
             raise NotDefined("canonical occasion indexing requires a coordinate")
+        return definition
 
     def _group_rows(self, group: Any) -> list[int]:
         """Return dense observation rows belonging to `group`."""
@@ -430,6 +432,26 @@ class LMM(IndexedModel):
         if not self._dense:
             raise ModelError("group rows are available only in dense mode")
         return [k for k in range(self.n) if self.group(k, factor) == group]
+
+    def _primary_random_term(self) -> RandomEffects | None:
+        """Return the primary grouping factor's random-effects term, if any."""
+        factor = self.primary_group
+        if factor is None:
+            return None
+        for term in self.random:
+            if term.group.name == factor:
+                return term
+        return None
+
+    def _random_term_offset(self, term: RandomEffects) -> int:
+        """Return the dense `matrix_z` column offset for `term`."""
+        offset = 0
+        for candidate in self.random:
+            if candidate is term:
+                return offset
+            labels = set(self._dense_group_codes(self._group_spec(candidate.group.name)))
+            offset += len(labels) * candidate.dim
+        return offset
 
     def group_count(self) -> Any:
         """Return the number of groups (symbolic or dense)."""
@@ -440,15 +462,26 @@ class LMM(IndexedModel):
 
     def occasion_count(self) -> Any:
         """Return the number of occasions for a balanced panel."""
-        self._require_occasion_index()
+        definition = self._require_occasion_index()
         factor = self._require_group_index()
-        if self._dense:
-            groups = set(self._dense_group_codes(self._group_spec(factor)))
-            counts = {len(self._group_rows(group)) for group in groups}
-            if len(counts) != 1:
+        if not self._dense:
+            return sp.Symbol("T", positive=True, integer=True)
+        column = self._observation_column(definition.name)
+        codes = self._dense_group_codes(self._group_spec(factor))
+        per_group: dict[int, list[Any]] = {}
+        for position, code in enumerate(codes):
+            per_group.setdefault(code, []).append(column[position])
+        occasion_sets: list[set[Any]] = []
+        for values in per_group.values():
+            distinct = set(values)
+            if len(distinct) != len(values):
                 raise NotDefined("occasion vectors require a balanced panel")
-            return counts.pop()
-        return sp.Symbol("T", positive=True, integer=True)
+            occasion_sets.append(distinct)
+        if not occasion_sets:
+            return 0
+        if any(values != occasion_sets[0] for values in occasion_sets[1:]):
+            raise NotDefined("occasion vectors require a balanced panel")
+        return len(occasion_sets[0])
 
     def group_size(self, group: Any) -> Any:
         """Return the number of observations in `group`."""
@@ -460,16 +493,12 @@ class LMM(IndexedModel):
         return group_size_symbol(group)
 
     def response(self, group: Any, occasion: Any = None) -> Any:
-        """Return Y_group (vector) or Y_group,occasion (scalar)."""
+        """Return Y_group as a row, or Y_group,occasion as a scalar."""
         self._require_group_index()
-        if occasion is not None:
-            self._require_occasion_index()
-        from .canonical import group_entry, group_response
-
-        vector = group_response(group, self.group_size(group))
+        matrix = self.response_matrix()
         if occasion is None:
-            return vector
-        return group_entry(group, self.group_size(group), occasion)
+            return matrix[group, :]
+        return matrix[group, occasion]
 
     def response_matrix(self) -> Any:
         """Return the balanced-panel response matrix Y (groups x occasions)."""
@@ -492,14 +521,21 @@ class LMM(IndexedModel):
         return group_mean(group, self.group_size(group), len(self.fixed.coefficients()))
 
     def random_design(self, group: Any) -> Any:
-        """Return Z_group."""
-        self._require_group_index()
+        """Return Z_group for the primary grouping factor."""
+        factor = self._require_group_index()
         from .canonical import group_random_design
 
-        q = sum(term.dim for term in self.random)
+        term = self._primary_random_term()
+        q = 0 if term is None else term.dim
         if self._dense:
             rows = self._group_rows(group)
-            return self.matrix_z()[rows, :]
+            if term is None:
+                return sp.zeros(len(rows), 0)
+            levels = sorted(set(self._dense_group_codes(self._group_spec(factor))))
+            if group not in levels:
+                return sp.zeros(len(rows), q)
+            start = self._random_term_offset(term) + levels.index(group) * q
+            return self.matrix_z()[rows, start : start + q]
         return group_random_design(group, self.group_size(group), q)
 
     def residual_covariance(self, group: Any) -> Any:
@@ -513,11 +549,12 @@ class LMM(IndexedModel):
         return group_residual(group, self.group_size(group))
 
     def random_effect(self, group: Any) -> Any:
-        """Return b_group."""
+        """Return b_group for the primary grouping factor."""
         self._require_group_index()
         from .canonical import group_coefficients
 
-        q = sum(term.dim for term in self.random)
+        term = self._primary_random_term()
+        q = 0 if term is None else term.dim
         return group_coefficients(group, q)
 
     def dense(

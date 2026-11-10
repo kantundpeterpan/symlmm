@@ -12,18 +12,6 @@ def group_size_symbol(group: Any) -> sp.Symbol:
     return sp.Symbol(f"n_{group}", positive=True, integer=True)
 
 
-def group_response(group: Any, size: Any) -> sp.MatrixSymbol:
-    """Return the response vector Y_group."""
-    return sp.MatrixSymbol(f"Y_{group}", size, 1)
-
-
-def group_entry(group: Any, size: Any, occasion: Any) -> sp.Expr:
-    """Return the scalar Y_group,occasion as a 1x1 matrix expression."""
-    entry = group_response(group, size)[occasion, 0]
-    entry.shape = (1, 1)
-    return entry
-
-
 def group_mean(group: Any, size: Any, p: int) -> sp.MatrixSymbol:
     """Return the fixed design matrix X_group."""
     return sp.MatrixSymbol(f"X_{group}", size, p)
