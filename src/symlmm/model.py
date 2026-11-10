@@ -256,25 +256,19 @@ class LMM(IndexedModel):
         slope_coordinates = tuple(
             dict.fromkeys(slope.coordinate for term in self.random for slope in term.slopes)
         )
-        declared = ([residual_coordinate] if residual_coordinate is not None else []) + list(
-            slope_coordinates
-        )
-        unique = tuple(dict.fromkeys(declared))
-        coordinate_name: str | None
         if coordinate is not None:
-            conflicts = tuple(name for name in unique if name != coordinate)
-            if conflicts:
+            if residual_coordinate is not None and residual_coordinate != coordinate:
                 raise ModelError(
-                    f"coordinate {coordinate!r} conflicts with term coordinates {conflicts!r}"
+                    f"coordinate {coordinate!r} conflicts with residual coordinate "
+                    f"{residual_coordinate!r}"
                 )
             coordinate_name = coordinate
-        elif len(unique) > 1:
-            raise ModelError(
-                f"conflicting coordinates {unique!r}; "
-                "declare one canonical coordinate with LMM(coordinate=...)"
-            )
+        elif residual_coordinate is not None:
+            coordinate_name = residual_coordinate
+        elif len(slope_coordinates) == 1:
+            coordinate_name = slope_coordinates[0]
         else:
-            coordinate_name = unique[0] if unique else None
+            coordinate_name = None
         super().__init__(
             n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
             groups=tuple(registered.values()),
@@ -636,49 +630,41 @@ class LMM(IndexedModel):
         form = require_form(form)
         coordinate_slopes = [(term, slope) for term in self.random for slope in term.slopes]
         if coordinate_slopes and at is None:
-            raise ModelError(
-                "icc requires at={'coordinate': value} for coordinate-varying random slopes"
-            )
-        canonical = self.coordinate_name
-        coordinate_value = None
+            raise ModelError("icc requires at={'coordinate': value} or coordinate mapping")
+        values: dict[str, Any] = {}
         if at is not None:
-            coordinate_value = at.get("coordinate")
-            if coordinate_value is None and canonical is not None:
-                coordinate_value = at.get(canonical)
-            if coordinate_slopes and coordinate_value is None:
-                raise ModelError(
-                    "icc requires at={'coordinate': value} for coordinate-varying random slopes"
-                )
+            if "coordinate" in at and self.coordinate_name is not None:
+                values[self.coordinate_name] = at["coordinate"]
+            values.update({key: value for key, value in at.items() if key != "coordinate"})
         random_part = sp.Integer(0)
         for term in self.random:
-            if self._dense and term.slopes:
+            z = term.z(self, 0)
+            if self._dense:
                 columns: list[Any] = [sp.Integer(1)] if term.intercept else []
                 for slope in term.slopes:
-                    values = (
-                        coordinate_value
-                        if coordinate_value is not None
-                        else self.coordinate(
-                            0,
-                            slope.coordinate,
-                            within=term.group if slope.within else None,
+                    if slope.coordinate not in values:
+                        raise ModelError(
+                            f"icc requires a value for coordinate {slope.coordinate!r}"
                         )
-                    )
-                    columns.append(values)
+                    columns.append(values[slope.coordinate])
                 z = sp.Matrix(columns)
             else:
-                z = term.z(self, 0)
                 for slope in term.slopes:
-                    if coordinate_value is not None:
-                        key = self.coordinate(
-                            0,
-                            slope.coordinate,
-                            within=term.group if slope.within else None,
+                    if slope.coordinate not in values:
+                        raise ModelError(
+                            f"icc requires a value for coordinate {slope.coordinate!r}"
                         )
-                        z = z.subs({key: coordinate_value})
+                    key = self.coordinate(
+                        0,
+                        slope.coordinate,
+                        within=term.group if slope.within else None,
+                    )
+                    z = z.subs({key: values[slope.coordinate]})
             random_part += (z.T * term.cov.dense() * z)[0, 0]
         residual_part = self.residual.entry(0, 0, self)
-        if coordinate_value is not None and canonical is not None and not self._dense:
-            residual_part = residual_part.subs({self.coordinate(0, canonical): coordinate_value})
+        canonical = self.coordinate_name
+        if canonical is not None and canonical in values and not self._dense:
+            residual_part = residual_part.subs({self.coordinate(0, canonical): values[canonical]})
         value = random_part / (random_part + residual_part)
         if form.value == "sum":
             return value

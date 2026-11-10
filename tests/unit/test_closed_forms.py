@@ -221,3 +221,23 @@ def test_icc_random_slope_evaluates_at_given_coordinate():
     value = model.icc(at={"coordinate": 2}, form="sum")
     assert sp.simplify(value - (tau2 + 4 * tau2) / (tau2 + 4 * tau2 + sigma2)) == 0
     assert not value.has(sp.Indexed)
+
+
+def test_icc_multiple_slopes_require_each_coordinate_value():
+    b0 = sp.Symbol("b0")
+    tau2, sigma2 = sp.symbols("tau2 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                slopes=(RandomSlope("time"), RandomSlope("dose")),
+                cov=Diagonal([tau2, tau2, tau2]),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    with pytest.raises(ModelError, match="coordinate 'dose'"):
+        model.icc(at={"time": 2}, form="sum")

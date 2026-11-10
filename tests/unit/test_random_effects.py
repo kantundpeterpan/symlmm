@@ -66,6 +66,43 @@ def test_duplicate_group_blocks_raise():
         )
 
 
+def test_multiple_slope_coordinates_are_allowed():
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=sp.Symbol("b0")),
+        random=[
+            RandomEffects(
+                group="subject",
+                slopes=(RandomSlope("time"), RandomSlope("dose", within=False)),
+                cov=Diagonal([s0, s1]),
+            )
+        ],
+        residual=IID(var=sigma2),
+    )
+    assert model.coordinate_name is None
+
+
+def test_icc_accepts_coordinate_mapping_for_multiple_slopes():
+    s0, s1 = sp.symbols("s0 s1", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=sp.Symbol("b0")),
+        random=[
+            RandomEffects(
+                group="subject",
+                slopes=(RandomSlope("time"), RandomSlope("dose")),
+                cov=Diagonal([s0, s1]),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    value = model.icc(at={"time": 2, "dose": 3}, form="sum")
+    assert sp.simplify(value - (4 * s0 + 9 * s1) / (4 * s0 + 9 * s1 + sigma2)) == 0
+    assert not value.has(sp.Indexed)
+
+
 def test_joint_covariance_entry_uses_one_block():
     b0 = sp.Symbol("b0")
     s0, s1 = sp.symbols("s0 s1", positive=True)
