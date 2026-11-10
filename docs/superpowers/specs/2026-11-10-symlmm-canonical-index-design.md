@@ -40,23 +40,43 @@ For unbalanced panels the matrix `Y` is not rectangular. Group rows `Y_i` and
 scalar entries `Y_{it}` remain defined; occasion columns are defined over the
 groups that actually have that occasion, or are rejected as ragged.
 
-## Model-defined index symbols
+## Group and covariate definitions carry their indices
 
-The model owns the canonical index symbols; they are not hardcoded in the
-response accessor:
+Index symbols belong to the structural definitions, not to a separate index
+object:
 
 ```python
-IndexSpec(group=sp.Symbol("i", integer=True), occasion=sp.Symbol("t", integer=True))
+subject = Group("subject", index=sp.Symbol("i", integer=True))
+visit = Covariate("time", index=sp.Symbol("t", integer=True))
+
+model = LMM(
+    fixed=Fixed(intercept=b0, slopes={visit: b1}),
+    random=[
+        RandomEffects(
+            group=subject,
+            intercept=True,
+            slopes=(RandomSlope(visit),),
+            cov=G,
+        )
+    ],
+    residual=AR1(group=subject, coordinate=visit, var=sigma2, rho=rho),
+)
 ```
 
-`LMM(..., index=IndexSpec(...))` stores:
+- `Group(name, index=...)`, `Nested(child, within, index=...)`, and
+  `Crossed(left, right, index=...)` own their group index symbol.
+- `Covariate(name, index=...)` owns its covariate/occasion index symbol.
+- `Fixed.slopes` maps `Covariate` definitions to coefficients.
+- `RandomSlope` takes a `Covariate`, not a bare string.
+- `RandomEffects` and `AR1`/`Toeplitz` take `Group` and `Covariate`
+  definitions.
+- `LMM` derives `model.group_index` from the primary group definition and
+  `model.occasion_index` from the canonical covariate definition.
+- Group and occasion index symbols must differ; equal symbols raise `ModelError`
+  at model construction.
 
-- `model.group_index`
-- `model.occasion_index`
-
-If omitted, the model uses default index symbols, but `Y[...]` always dispatches
-against the stored symbols, never against a hardcoded `"t"`. Group and occasion
-symbols must be distinct; equal symbols raise `ModelError`.
+No index name is hardcoded in the response accessor. `Y[t]` dispatches on the
+covariate definition's index symbol.
 
 ## Public model API
 

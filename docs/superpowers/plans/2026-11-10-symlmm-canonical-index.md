@@ -32,6 +32,89 @@
 
 ---
 
+### Task 0: Index-bearing group and covariate definitions
+
+**Files:**
+- Modify: `src/symlmm/specs.py`
+- Modify: `src/symlmm/model.py`
+- Test: `tests/unit/test_specs.py`
+- Test: `tests/unit/test_indices.py`
+
+**Interfaces:**
+- Produces: `Group(name, index=...)`, `Nested(child, within, index=...)`,
+  `Crossed(left, right, index=...)`, `Covariate(name, index=...)`;
+  `Fixed.slopes` keyed by `Covariate`; `RandomEffects.group: Group`;
+  `RandomSlope.coordinate: Covariate`; `AR1/Toeplitz(group=Group,
+  coordinate=Covariate, ...)`.
+
+- [ ] **Step 1: Add index fields**
+
+```python
+@dataclass(frozen=True)
+class Group:
+    name: str
+    index: sp.Symbol | None = None
+
+    @property
+    def label(self) -> str:
+        return self.name
+```
+
+Add the same optional `index` to `Nested` and `Crossed`. Add:
+
+```python
+@dataclass(frozen=True)
+class Covariate:
+    """A named covariate/coordinate definition with its index symbol."""
+
+    name: str
+    index: sp.Symbol | None = None
+
+    def __post_init__(self) -> None:
+        if self.index is None:
+            object.__setattr__(self, "index", sp.Symbol(self.name, integer=True))
+```
+
+Default indices for `Group/Nested/Crossed` are derived from their label when
+`index` is omitted.
+
+- [ ] **Step 2: Normalize string compatibility**
+
+`Fixed.slopes`, `RandomEffects.group`, `RandomSlope.coordinate`, `AR1.group`,
+`AR1.coordinate`, `Toeplitz.group`, and `Toeplitz.coordinate` accept either the
+new definitions or the existing string forms. Normalize strings to
+`Group(name, index=sp.Symbol(name, integer=True))` and
+`Covariate(name, index=sp.Symbol(name, integer=True))` at construction.
+
+- [ ] **Step 3: Derive model indices**
+
+`LMM` stores:
+
+```python
+primary = self.random[0].group if self.random else ...
+self.group_index = primary.index
+self.occasion_index = canonical_covariate.index
+```
+
+`group_index` and `occasion_index` must be distinct. `model.symbols()` uses these
+symbols, never a hardcoded `i`/`t`.
+
+- [ ] **Step 4: Tests and commit**
+
+Test:
+- `Group("subject", index=i).index is i`;
+- default group/covariate indices are derived from names;
+- `Fixed.slopes={Covariate("time", index=t): b1}`;
+- `RandomSlope(Covariate("time", index=t))`;
+- `AR1(group=subject, coordinate=visit)`;
+- string forms normalize with equal semantics;
+- equal group/occasion symbols raise `ModelError`.
+
+Run full gate and commit:
+`git commit -m "feat: attach indices to group and covariate definitions"`
+
+---
+
 ### Task 1: Canonical group index and response symbols
 
 **Files:**
@@ -41,7 +124,7 @@
 
 **Interfaces:**
 - Consumes: `LMM`, `RandomEffects`, `Fixed`, `IndexedModel`.
-- Produces: `IndexSpec`, `model.group_index`, `model.occasion_index`, `model.primary_group`, `model.group_count()`, `model.occasion_count()`, `model.group_size(g)`, `model.response_matrix()`, `model.response(g, t=None)`, `model.time_response(t)`, `model.fixed_design(g)`, `model.random_design(g)`, `model.residual_covariance(g)`, `model.random_effect(g)`.
+- Produces: `model.group_index`, `model.occasion_index`, `model.primary_group`, `model.group_count()`, `model.occasion_count()`, `model.group_size(g)`, `model.response_matrix()`, `model.response(g, t=None)`, `model.time_response(t)`, `model.fixed_design(g)`, `model.random_design(g)`, `model.residual_covariance(g)`, `model.random_effect(g)`. Index symbols come from the `Group`/`Covariate` definitions from Task 0.
 
 - [ ] **Step 1: Write the failing canonical symbol tests**
 
@@ -134,31 +217,16 @@ def group_coefficients(group: Any, q: int) -> sp.MatrixSymbol:
     return sp.MatrixSymbol(f"b_{group}", q, 1)
 ```
 
-Add to `src/symlmm/specs.py`:
+Use the `Group`/`Covariate` definitions from Task 0. `LMM` stores:
 
 ```python
-@dataclass(frozen=True)
-class IndexSpec:
-    """Canonical group and occasion index symbols."""
-
-    group: sp.Symbol
-    occasion: sp.Symbol
-
-    def __post_init__(self) -> None:
-        if self.group == self.occasion:
-            raise ModelError("group and occasion index symbols must differ")
+self.group_index = self.primary_group_definition.index
+self.occasion_index = self.occasion_definition.index
 ```
 
-In `LMM.__init__`, accept `index: IndexSpec | None = None`; store:
-
-```python
-self.index = index or IndexSpec(
-    sp.Symbol("g", integer=True),
-    sp.Symbol("t", integer=True),
-)
-self.group_index = self.index.group
-self.occasion_index = self.index.occasion
-```
+where `primary_group_definition` is the primary `Group`/`Nested`/`Crossed` and
+`occasion_definition` is the canonical `Covariate`. No standalone `IndexSpec`
+exists.
 
 In `LMM`:
 
