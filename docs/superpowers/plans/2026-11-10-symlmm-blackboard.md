@@ -1,5 +1,8 @@
 # Blackboard-Style Symbolic Moments — Implementation Plan
 
+> **Superseded:** this plan uses the non-canonical row index and must not be executed.
+> Use `2026-11-10-symlmm-canonical-index.md` instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a pedagogical `model.symbols()` facade with `E`, `Var`, `Cov`, conditional moments, and law-of-total-variance rewriting over the existing LMM moment engine.

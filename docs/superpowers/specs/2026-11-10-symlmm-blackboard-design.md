@@ -1,6 +1,10 @@
 # Blackboard-Style Symbolic Moments Design
 
 **Status:** proposed
+
+> **Superseded:** the row-index notation in this document is not canonical.
+> Use `2026-11-10-symlmm-canonical-index-design.md` and
+> `2026-11-10-symlmm-canonical-index.md` instead.
 **Scope:** a pedagogical facade over the LMM moment engine. It returns model
 symbols and supports blackboard-style `E`, `Var`, and `Cov` manipulation,
 including the law of total variance.
