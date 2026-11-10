@@ -109,9 +109,14 @@ with a residual coordinate raises `ModelError`. Supplying `coordinate=` never
 produces "no occasion": when no residual, fixed, or random-slope definition
 matches, the model synthesizes `Covariate(coordinate_name)`.
 
-Only the primary group defines `Y_i`, `V_i`, and the canonical group block.
-With multiple grouping factors, `Y_i` is still the primary group's response,
-but block covariance that would combine factors is `NotDefined`.
+Derived canonical occasion `t` is a 0-based rank in sorted occasion order
+within each group, not the raw coordinate value. An explicit `occasion=`
+column supplies the codes by first appearance within each group.
+
+Only the primary group defines `Y_i` and its design/residual blocks. With
+multiple grouping factors, `Y_i` is still the primary group's response, but
+group and entry covariance raise `NotDefined` rather than dropping the other
+factors' contributions.
 
 ## Canonical model API
 
@@ -209,7 +214,7 @@ In matrix terms, `Cov(Y_i) = V_i = Z_i G Z_i' + R_i`. Across groups,
 
 ```python
 j = sp.Symbol("j", integer=True)
-assert model.group_cross_covariance(syms.i, j).is_zero_matrix
+assert model.group_cross_covariance(syms.i, j).is_ZeroMatrix
 ```
 The blackboard facade itself is built around one model group index. Use the
 model's `group_cross_covariance` when a second group symbol is needed.
@@ -235,8 +240,8 @@ V_Y = syms.Var(syms.Y[syms.i])
 between = syms.Var(syms.E(syms.Y[syms.i], given=b_i))
 within = syms.E(syms.Var(syms.Y[syms.i], given=b_i))
 
-assert sp.simplify(V_Y - between - within).is_zero_matrix
-assert sp.simplify(syms.total_variance(syms.Y[syms.i], given=b_i) - V_Y).is_zero_matrix
+assert sp.simplify(V_Y - between - within).is_ZeroMatrix
+assert sp.simplify(syms.total_variance(syms.Y[syms.i], given=b_i) - V_Y).is_ZeroMatrix
 ```
 
 `between` is the random-effect contribution `Z_i G Z_i'`; `within` is the
@@ -270,10 +275,10 @@ entry result is `model.entry_mean(i, t)`.
   unsupported vector combinations raise `UnsupportedMoment`.
 - `ModelSymbols` returns ordinary SymPy expressions. It is not a
   `sympy.stats` random-variable system and does not construct distributions.
-- Group blocks `V_i` and `Cov(Y_i, Y_j) = 0` require a single primary grouping
-  factor. Crossed random effects remain additional terms. With multiple
-  grouping factors, block covariance that would combine factors is
-  `NotDefined`.
+- Group blocks `V_i`, entry covariances, and `Cov(Y_i, Y_j) = 0` require a
+  single grouping factor. Crossed random effects remain additional terms. With
+  multiple grouping factors, group and entry covariance raise `NotDefined`
+  rather than dropping other factors' random terms.
 - A rectangular `Y` and occasion columns require a balanced panel. `Y_i`
   remains a group vector for unbalanced panels but is not a row of a
   rectangular matrix; scalar entries `Y_{it}` remain defined, and ragged

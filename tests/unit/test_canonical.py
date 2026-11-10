@@ -371,13 +371,25 @@ def test_occasion_column_moments_require_balanced_dense_panel():
         model.time_covariance(0, 1)
 
 
-def test_group_covariance_uses_primary_random_term_for_multiple_factors():
+def test_group_covariance_rejects_multiple_grouping_factors():
     model = _two_factor_model()
     g = sp.Symbol("g", integer=True)
-    Z = model.random_design(g)
-    G = model.random[0].cov.dense()
 
-    assert model.group_covariance(g) == Z * G * Z.T + model.residual_covariance(g)
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.group_covariance(g)
+
+
+def test_dense_group_covariance_rejects_multiple_grouping_factors():
+    model = _two_factor_model().dense(
+        subject=[0, 0, 1, 1],
+        item=[0, 1, 0, 1],
+        time=[0, 1, 0, 1],
+    )
+
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.group_covariance(0)
+    with pytest.raises(NotDefined, match="single grouping factor"):
+        model.entry_covariance(0, 0, 1)
 
 
 def test_group_cross_covariance_rejects_multiple_grouping_factors():

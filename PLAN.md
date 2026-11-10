@@ -147,9 +147,14 @@ with a residual coordinate raises `ModelError`. Supplying `coordinate=` never
 produces "no occasion": when no residual, fixed, or random-slope definition
 matches, the model synthesizes `Covariate(coordinate_name)`.
 
-Only the primary group defines the canonical `Y_i` block, `V_i`, and the group
-moments. For multiple grouping factors, `Y_i` is still the primary group's
-response, but block covariance that would combine factors is `NotDefined`.
+Derived canonical occasion `t` is a 0-based rank in sorted occasion order
+within each group, not the raw coordinate value. An explicit `occasion=`
+column supplies the codes by first appearance within each group.
+
+Only the primary group defines the canonical `Y_i` block, its design, and
+residual covariance. Group and entry covariance require a single grouping
+factor; with multiple grouping factors, `group_covariance`,
+`entry_covariance`, and cross-factor block covariance raise `NotDefined`.
 
 Index symbols belong to the structural definitions, not to a separate index
 object:
@@ -707,9 +712,9 @@ model raises `ModelError`. A supplied `coordinate=` never yields "no occasion":
 when no residual, fixed, or random-slope definition matches, the model
 synthesizes `Covariate(coordinate_name)`. Nested and crossed factors remain
 declared in the spec (`sl.Nested(...)`, `sl.Crossed(...)`). With multiple
-grouping factors, the canonical `Y_i` block uses the primary group only; block
-moments that would combine factors, including `group_cross_covariance`, raise
-`NotDefined`.
+grouping factors, the canonical `Y_i` block uses the primary group only;
+`group_covariance`, `entry_covariance`, and block moments that would combine
+factors, including `group_cross_covariance`, raise `NotDefined`.
 
 **Canonical group/occasion methods.** `response`, `time_response`,
 `group_mean`, `group_covariance`, `group_cross_covariance`, `entry_mean`,
@@ -1560,8 +1565,8 @@ reviewed and the M0.5 spike closes the SymPy assumptions.
   `Y_{it}` is the scalar entry. For an unbalanced panel `Y_i` is not a row of a
   rectangular matrix.
 - The primary group and canonical occasion follow the documented precedence;
-  multiple grouping factors restrict the canonical `Y_i` block to the primary
-  group and make cross-factor block covariance `NotDefined`.
+  with multiple grouping factors, `Y_i` uses the primary group and group/entry
+  covariance raises `NotDefined`.
 - `V_i = Z_i G Z_i' + R_i`; `Cov(Y_i, Y_j) = 0` for `i != j`; group and entry
   moments are exposed and tested in symbolic and dense modes.
 - The blackboard exposes canonical `syms.Y[syms.i]`, `syms.Y[syms.t]`, and

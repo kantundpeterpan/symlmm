@@ -1,10 +1,10 @@
 """Model base classes and index accessors.
 
-Index model A (temporary): ``i`` is only the observation-row cursor. Group
-levels ``g`` and within-group occasions ``k`` are distinct structural index
-spaces; coordinates live on ``G x K`` as ``X[g, k]``. The full two-level
-``(group, occasion)`` response index redesign is tracked in issue #1:
-https://github.com/kantundpeterpan/symlmm/issues/1
+Canonical notation uses ``i`` for the group and ``t`` for the occasion:
+``Y_i`` is the group response row in a balanced panel, ``Y[:, t]`` is the
+occasion column, and ``Y_{it}`` is the scalar response. The stacked
+observation-row cursor used internally by the matrix engine is an
+implementation detail, not public model notation.
 """
 
 from __future__ import annotations
@@ -593,7 +593,8 @@ class LMM(IndexedModel):
         return self.fixed_design(group) * beta
 
     def group_covariance(self, group: Any) -> Any:
-        """Return Cov(Y_group) for the primary grouping factor."""
+        """Return Cov(Y_group); requires a single grouping factor."""
+        self._require_single_grouping_factor()
         term = self._primary_random_term()
         residual = self.residual_covariance(group)
         if term is None:

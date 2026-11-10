@@ -49,13 +49,14 @@ indexing layer. There was no separate 0.4.0 release.
   the same name, else a random-slope `Covariate` when exactly one distinct
   coordinate exists, else an explicit `coordinate=` name synthesized as
   `Covariate(name)`, else none. An explicit `coordinate=` conflicting with a
-  residual coordinate raises `ModelError`. Multiple grouping factors restrict
-  the canonical `Y_i` block to the primary group and make cross-factor block
-  covariance `NotDefined`.
-- `Fixed.slopes`, `RandomSlope`, `RandomEffects`, and residual covariances
-  accept `Group`/`Covariate` definitions. `RandomSlope(coordinate=...)` takes a
-  `Covariate` definition in canonical code; a bare string is accepted only as a
-  compatibility shim and normalized to `Covariate(name)`.
+  residual coordinate raises `ModelError`. Multiple grouping factors keep the
+  canonical `Y_i` block on the primary group, but group and entry covariance
+  raise `NotDefined` instead of dropping the other factors' contributions.
+- `Fixed.slopes`, `RandomSlope`, `RandomEffects`, and the `AR1` and `Toeplitz`
+  residual covariances accept `Group`/`Covariate` definitions.
+  `RandomSlope(coordinate=...)` takes a `Covariate` definition in canonical
+  code; a bare string is accepted only as a compatibility shim and normalized
+  to `Covariate(name)`.
 - `LMM` rejects equal group and occasion index symbols with `ModelError`.
 - The stacked row API (`mean(row)`, `covariance(row, row)`, `variance(row)`,
   `correlation(row, row)`, `variogram(row, row)`, `covariogram(row, row)`, and
