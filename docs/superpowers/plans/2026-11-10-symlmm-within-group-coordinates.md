@@ -118,6 +118,8 @@ def __init__(
     self.occasion_names = occasion
     self.covariates = tuple(covariates)
     self._coordinate_cache: dict[tuple[str, str], dict[tuple[int, int], Any]] = {}
+    self._group_cache: dict[str, list[int]] = {}
+    self._occasion_cache: dict[str, list[int]] = {}
     self._i = observation_index("i")
     self._j = observation_index("j")
 ```
@@ -161,7 +163,9 @@ def coordinate(
     return sp.IndexedBase(selected)[self.group(i, within), self.occasion(i, within)]
 ```
 
-Add dense occasion derivation and nested-coordinate validation:
+Add dense occasion derivation and nested-coordinate validation. Cache
+`_dense_group_codes` by `spec.label` too; repeated `group()` calls from
+`_nested_coordinate_value` and `matrix_z` must not rebuilt the code list.
 
 ```python
 def _occasion_column(self, factor: str) -> str | None:
@@ -171,13 +175,23 @@ def _occasion_column(self, factor: str) -> str | None:
     return self.occasion_names
 
 def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
-    """Return integer occasion codes for `spec`."""
+    """Return within-group integer occasion codes for `spec`."""
+    cached = self._occasion_cache.get(spec.label)
+    if cached is not None:
+        return cached
+    groups = self._dense_group_codes(spec)
     column = self._occasion_column(spec.name)
     if column is not None:
         raw = list(self._observation_column(column))
-        codes = {value: code for code, value in enumerate(sorted(set(raw), key=str))}
-        return [codes[value] for value in raw]
-    groups = self._dense_group_codes(spec)
+        mapping: dict[int, dict[Any, int]] = {}
+        result = [0] * self.n
+        for position, (group_code, value) in enumerate(zip(groups, raw, strict=True)):
+            per_group = mapping.setdefault(group_code, {})
+            if value not in per_group:
+                per_group[value] = len(per_group)
+            result[position] = per_group[value]
+        self._occasion_cache[spec.label] = result
+        return result
     if self.coordinate_name is not None:
         raw = list(self._observation_column(self.coordinate_name))
     else:
@@ -194,6 +208,7 @@ def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
                 code += 1
                 previous = value
             result[position] = code
+    self._occasion_cache[spec.label] = result
     return result
 
 def _nested_coordinate_value(self, i: Any, name: str, spec: GroupSpec) -> Any:
@@ -217,6 +232,10 @@ def _nested_coordinate_value(self, i: Any, name: str, spec: GroupSpec) -> Any:
     return mapping[(self.group(i, spec.name), self.occasion(i, spec.name))]
 ```
 
+Explicit occasion codes are assigned per group: globally unique labels still
+start at `0` within each group. Derived occasion codes sort unique coordinate
+values within each group.
+
 Update `design` in `IndexedModel`:
 
 ```python
@@ -225,7 +244,13 @@ terms.extend(self.covariate(i, name) for name in self.covariates)
 return sp.Matrix(terms) if terms else sp.zeros(0, 1)
 ```
 
-In `dense()`, after copying state, reset `dense._coordinate_cache = {}`.
+In `dense()`, after copying state, reset all caches:
+
+```python
+dense._coordinate_cache = {}
+dense._group_cache = {}
+dense._occasion_cache = {}
+```
 
 - [ ] **Step 4: Rename `time` to `coordinate` in the model and specs**
 
@@ -299,6 +324,26 @@ def test_dense_occasion_codes_are_within_group():
     assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
     assert dense.coordinate(0, "visit_time", within="subject") == 10
     assert dense.coordinate(1, "visit_time", within="subject") == 11
+
+
+def test_dense_explicit_occurrence_codes_are_within_group():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="subject", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="visit_time",
+        occasion="occasion",
+        n=4,
+    )
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        occasion=["s1v1", "s1v2", "s2v1", "s2v2"],
+        visit_time=[10, 11, 20, 21],
+    )
+    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
 
 
 def test_dense_nested_coordinate_rejects_conflict():
