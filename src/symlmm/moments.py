@@ -123,8 +123,9 @@ def conditional_mean(
 ) -> Any:
     """Return E[y | b].
 
-    The sum form expands component-wise, where ``b_{group}[a]`` denotes a
-    component of the stacked random-effect vector ``b``.
+    The sum form expands component-wise, where
+    ``b_{group}_{term_index}[level, a]`` denotes a component of the stacked
+    random-effect vector ``b``.
     """
     form = require_form(form)
     if i is None:
