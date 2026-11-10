@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `LMM(..., time=...)` accepts an explicit canonical time coordinate.
+
+### Changed
+
+- `LMM.design(i)` now follows `Fixed` column order and count instead of
+  unconditionally inserting the canonical time.
+- Conflicting residual/random time coordinates now raise `ModelError`; a
+  single declared coordinate is inferred.
+- Random-slope `icc` requires `at={"time": ...}` instead of silently
+  evaluating at observation 0.
+- Dense-mode group labels are integer codes over the factor's label space,
+  including nested and crossed composite factors.
+- Constraint messages name the actual parameter expression instead of using
+  fixed `tau2`/`sigma2` text.
+
+### Fixed
+
+- `Heteroscedastic.entry` raises `ModelError` for concrete out-of-range
+  indices instead of silently returning zero.
+- `covariogram` delegates to `covariance` to keep the two quantities in sync.
+
 ## [0.1.0] - 2026-11-09
 
 ### Added
