@@ -37,13 +37,22 @@ indexing layer. There was no separate 0.4.0 release.
 
 ### Changed
 
-- Public notation now uses `Y_i = Y[i, :]` for the group response vector,
-  `Y[:, t]` (also `Y[t]`) for the occasion column, and `Y_{it}` for the scalar
-  entry. `V_i = Z_i G Z_i' + R_i`, `Cov(Y_i, Y_j) = 0` for `i != j`, and
-  `Cov(Y_{it}, Y_{is}) = [V_i]_{ts}`.
+- Public notation now uses `Y_i` for the group response vector. In a balanced
+  panel `Y_i = Y[i, :]` is a row, `Y[:, t]` (also `Y[t]`) is the occasion
+  column, and `Y_{it}` is the scalar entry; in an unbalanced panel `Y_i` is not
+  a row of a rectangular matrix. `V_i = Z_i G Z_i' + R_i`,
+  `Cov(Y_i, Y_j) = 0` for `i != j`, and `Cov(Y_{it}, Y_{is}) = [V_i]_{ts}`.
+  Python examples use 0-based indices; rendered formulas use 1-based bounds.
+- The primary group is the first random block's `Group`, else the residual
+  group definition, else the first registered group. The canonical occasion is
+  the residual coordinate `Covariate`, else the fixed-slope `Covariate` with
+  the same name, else a random-slope `Covariate`, else none. Multiple grouping
+  factors restrict the canonical `Y_i` block to the primary group and make
+  cross-factor block covariance `NotDefined`.
 - `Fixed.slopes`, `RandomSlope`, `RandomEffects`, and residual covariances
-  accept `Group`/`Covariate` definitions. String forms still normalize to
-  definitions; explicit definitions are the documented canonical form.
+  accept `Group`/`Covariate` definitions. `RandomSlope(coordinate=...)` takes a
+  `Covariate` definition in canonical code; a bare string is accepted only as a
+  compatibility shim and normalized to `Covariate(name)`.
 - `LMM` rejects equal group and occasion index symbols with `ModelError`.
 - The stacked row API (`mean(row)`, `covariance(row, row)`, `variance(row)`,
   `correlation(row, row)`, `variogram(row, row)`, `covariogram(row, row)`, and

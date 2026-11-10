@@ -101,14 +101,24 @@ reproducible analytic formulas.
 
 The public response object is a matrix `Y` with groups as rows and occasions as
 columns. For a balanced panel with `m` groups and `T` occasions, `Y` is
-`m x T`. Indices are 0-based internally; rendered documentation displays
-1-based sums and states the mapping.
+`m x T`. Across both balanced and unbalanced panels, `Y_i` denotes the response
+vector for group `i`; only in a balanced panel is it a row of the rectangular
+matrix, `Y_i = Y[i, :]`. In an unbalanced panel `Y_i` remains a group vector,
+but it is not a row of a rectangular `Y` matrix, and occasion columns `Y[:, t]`
+are not defined for the whole panel.
+
+Python code and internal storage are 0-based; rendered mathematical formulas
+are 1-based and state the conversion. Every integer group, occasion, or row
+index in a Python example is 0-based.
 
 - `i` indexes the group/cluster/subject; `t` indexes the occasion.
-- `Y_i = Y[i, :]` is the group response row vector.
+- `Y_i` is the group response vector. In a balanced panel it is the row vector
+  `Y_i = Y[i, :]`; in an unbalanced panel it is a group vector, not a row of a
+  rectangular `Y` matrix.
 - `Y[:, t]`, also written `Y[t]` when `t` is the model-defined occasion
-  symbol, is the occasion column vector.
-- `Y_{it}` is the scalar response at group `i`, occasion `t`.
+  symbol, is the occasion column vector for a balanced panel.
+- `Y_{it}` is the scalar response at group `i`, occasion `t`; it is defined for
+  both balanced and unbalanced panels.
 - `b_i` is the group random-effect vector.
 - `X_i`, `Z_i`, and `R_i` are group design and residual blocks; `G` is the
   random-effect covariance.
@@ -116,6 +126,21 @@ columns. For a balanced panel with `m` groups and `T` occasions, `Y` is
 - `Cov(Y_i, Y_j) = 0` for `i != j`.
 - `Cov(Y_{it}, Y_{is}) = [V_i]_{ts}`.
 - For a balanced panel, `Cov(Y[:, t], Y[:, s]) = diag_i([V_i]_{ts})`.
+
+**Primary group and canonical occasion.** The model resolves the canonical
+indices by fixed precedence:
+
+- primary group = the first `RandomEffects` block's `Group`; otherwise the
+  residual covariance's group definition; otherwise the first registered
+  grouping definition.
+- canonical occasion = the residual covariance's coordinate `Covariate`;
+  otherwise the fixed-effect slope `Covariate` with the same name as the
+  selected model coordinate; otherwise a random-slope `Covariate`; otherwise
+  no occasion (`occasion_index is None`).
+
+Only the primary group defines the canonical `Y_i` block, `V_i`, and the group
+moments. For multiple grouping factors, `Y_i` is still the primary group's
+response, but block covariance that would combine factors is `NotDefined`.
 
 Index symbols belong to the structural definitions, not to a separate index
 object:
@@ -153,10 +178,12 @@ s = sp.Symbol("s", integer=True)
   `subject:item`).
 - `Covariate(name, index=...)` owns its covariate/occasion index symbol. When
   omitted, the index is derived from the name.
-- `Fixed.slopes` maps `Covariate` definitions to coefficients, and
-  `RandomSlope` takes a `Covariate`. `RandomEffects`, `AR1`, and `Toeplitz`
-  take `Group` and `Covariate` definitions. String forms remain accepted for
-  compatibility and are normalized to definitions.
+- `Fixed.slopes` maps `Covariate` definitions to coefficients.
+  `RandomSlope(coordinate=...)` takes a `Covariate` definition, not a bare
+  string. `RandomEffects`, `AR1`, and `Toeplitz` also take `Group` and
+  `Covariate` definitions. A bare string is accepted only as a compatibility
+  shim and is normalized to `Covariate(name)`; canonical code passes the
+  definition.
 - A model rejects equal group and occasion index symbols with `ModelError`.
 - No response accessor hardcodes an index name. `Y[t]` dispatches on the
   model-defined occasion symbol.
@@ -168,7 +195,7 @@ model.group_count()                      # m, symbolic or dense
 model.occasion_count()                   # T, balanced panels
 model.group_size(i)                      # n_i
 model.response_matrix()                  # Y, m x T
-model.response(i)                        # Y_i row vector
+model.response(i)                        # Y_i row vector (balanced)
 model.time_response(t)                   # Y[:, t] column vector
 model.response(i, t)                     # Y_it scalar
 
@@ -186,10 +213,11 @@ model.time_mean(t)                       # E[Y[:, t]]
 model.time_covariance(t, s)              # Cov(Y[:, t], Y[:, s])
 ```
 
-Occasion-column moments require a concrete group count or dense mode; the
-symbolic arbitrary-`m` form raises `NotDefined`. Group blocks require a single
-primary grouping factor; crossed random effects remain additional terms and
-do not form diagonal group blocks.
+Occasion-column moments require a balanced panel with a concrete group count
+or dense mode; the symbolic arbitrary-`m` form raises `NotDefined`. With
+multiple grouping factors, the canonical `Y_i` block uses the primary group
+only; block moments that would combine factors, including
+`group_cross_covariance`, raise `NotDefined`.
 
 **Stacked engine internals.** Matrix assembly still stacks observations into a
 vector `y` and addresses rows with a 0-based observation-row cursor. The
@@ -628,12 +656,14 @@ BLUP support is form-bounded:
 ### 5.0 Conventions and contracts
 
 **Canonical index (model B).** `i` indexes the group/cluster/subject and `t`
-indexes the occasion. `Y` is the `m x T` response matrix; `Y_i = Y[i, :]` is
-the group row vector, `Y[:, t]` (also `Y[t]` for the model-defined occasion
-symbol) is the occasion column, and `Y_{it}` is a scalar. Indices are 0-based
-internally; documentation displays 1-based sums and states the mapping. Index
-symbols belong to the structural definitions, never to a separate index
-object:
+indexes the occasion. `Y_i` is the group response vector; for a balanced panel
+`Y_i = Y[i, :]` is a row of the `m x T` response matrix `Y`, while for an
+unbalanced panel `Y_i` remains a group vector but is not a row of a rectangular
+`Y` matrix. `Y[:, t]` (also `Y[t]` for the model-defined occasion symbol) is the
+occasion column for a balanced panel, and `Y_{it}` is a scalar entry for both
+balanced and unbalanced panels. Python examples use 0-based indices; rendered
+mathematical formulas use 1-based bounds. Index symbols belong to the
+structural definitions, never to a separate index object:
 
 ```python
 subject = sl.Group("subject", index=sp.Symbol("i", integer=True))
@@ -661,9 +691,12 @@ model.occasion_index is visit.index      # t
 
 `Group`, `Nested`, `Crossed`, and `Covariate` derive an index symbol from the
 name or factor label when `index=` is omitted. A model rejects equal group and
-occasion index symbols with `ModelError`. Nested and crossed factors remain
-declared in the spec (`sl.Nested(...)`, `sl.Crossed(...)`); crossed random
-effects are additional terms and do not form diagonal group blocks.
+occasion index symbols with `ModelError`. The primary group and canonical
+occasion follow the precedence in §3.0. Nested and crossed factors remain
+declared in the spec (`sl.Nested(...)`, `sl.Crossed(...)`). With multiple
+grouping factors, the canonical `Y_i` block uses the primary group only; block
+moments that would combine factors, including `group_cross_covariance`, raise
+`NotDefined`.
 
 **Canonical group/occasion methods.** `response`, `time_response`,
 `group_mean`, `group_covariance`, `group_cross_covariance`, `entry_mean`,
@@ -754,7 +787,7 @@ model.response_matrix()                          # Y, m x T
 model.group_count()                              # m
 model.occasion_count()                           # T
 model.group_size(i)                              # n_i
-model.response(i)                                # Y_i row vector
+model.response(i)                                # Y_i row vector (balanced)
 model.time_response(t)                           # Y[:, t] column vector
 model.response(i, t)                             # Y_it scalar
 model.fixed_design(i)                            # X_i
@@ -936,7 +969,7 @@ s = sp.Symbol("s", integer=True)
 assert syms.i == model.group_index
 assert syms.t == model.occasion_index
 
-syms.Y[syms.i]              # Y_i row vector
+syms.Y[syms.i]              # Y_i row vector (balanced)
 syms.Y[syms.t]              # Y[:, t] occasion column
 syms.Y[syms.i, syms.t]      # Y_it scalar
 syms.Y[syms.i, :]           # row slice
@@ -1004,10 +1037,12 @@ Each grouping factor contributes one joint `RandomEffects` block:
   constant column; `slopes` is a tuple of `RandomSlope` definitions. `cov` must
   be `dim × dim`, where `dim = int(intercept) + len(slopes)`, so
   intercept–slope and slope–slope covariances are modelled jointly.
-- `RandomSlope(coordinate, within=True)` is a pure design definition: it names
-  the `Covariate` column and whether it is evaluated within the group
+- `RandomSlope(coordinate, within=True)` is a pure design definition: its
+  `coordinate` argument takes a `Covariate` definition, not a bare string. It
+  names the `Covariate` column and whether it is evaluated within the group
   (`within=True`, default: `X_{it}`) or globally (`within=False`: `X_i`). It
-  carries no covariance.
+  carries no covariance. A bare string is accepted only as a compatibility
+  shim and is normalized to `Covariate(name)`.
 - Different grouping factors use separate blocks; a grouping factor may appear
   in at most one block. Blocks assemble as
   \(Z_i=[Z_{i,1}\ \cdots\ Z_{i,K}]\),
@@ -1450,17 +1485,19 @@ reviewed and the M0.5 spike closes the SymPy assumptions.
   this distinction prominently.
 - **Symbolic matrix limits.** No densification of symbolic shapes. `dense()`
   requires explicit observations.
-- **Canonical row/column convention.** `Y_i = Y[i, :]` is a row vector while
-  `V_i = Z_i G Z_i' + R_i` is a square group matrix. Document the row-vector
-  convention explicitly and keep `Y[:, t]`/`Y[t]` for occasion columns; do not
-  infer a column from a bare integer index.
-- **Unbalanced panels.** `Y_i` and `Y_{it}` remain defined, but the rectangular
-  `Y` matrix and occasion columns require a balanced panel. Reject ragged
-  occasion columns with `NotDefined` instead of inventing missing occasions.
-- **Single primary grouping factor.** Canonical group blocks `V_i` and
-  `Cov(Y_i, Y_j) = 0` require one primary grouping factor. Crossed random
-  effects remain additional terms; group-block queries must raise `NotDefined`
-  when no diagonal block structure exists.
+- **Canonical row/column convention.** In a balanced panel, `Y_i = Y[i, :]`
+  is a row vector while `V_i = Z_i G Z_i' + R_i` is a square group matrix.
+  Document the row-vector convention explicitly and keep `Y[:, t]`/`Y[t]` for
+  occasion columns; do not infer a column from a bare integer index.
+- **Unbalanced panels.** `Y_i` and `Y_{it}` remain defined, but `Y_i` is not a
+  row of a rectangular `Y` matrix in an unbalanced panel. The rectangular `Y`
+  matrix and occasion columns require a balanced panel. Reject ragged occasion
+  columns with `NotDefined` instead of inventing missing occasions.
+- **Primary grouping factor.** The primary group follows a fixed precedence:
+  first random block's `Group`, else the residual group definition, else the
+  first registered group. The canonical `Y_i` block uses that group only. With
+  multiple grouping factors, block covariance that would combine factors is
+  `NotDefined`; crossed random effects remain additional terms.
 - **Row API drift.** The stacked row API remains for matrix assembly, dense
   mode, variograms, and BLUP. Keep it documented as engine-internal so examples
   do not reintroduce row-index notation as canonical model notation.
@@ -1505,8 +1542,13 @@ reviewed and the M0.5 spike closes the SymPy assumptions.
 - `Group`, `Nested`, `Crossed`, and `Covariate` carry index symbols, and
   `model.group_index`/`occasion_index` come from those definitions; no index
   name is hardcoded.
-- `Y_i = Y[i, :]` is the group row vector, `Y[:, t]`/`Y[t]` is the occasion
-  column, and `Y_{it}` is the scalar entry.
+- `Y_i` is the group response vector; for a balanced panel
+  `Y_i = Y[i, :]` is a row, `Y[:, t]`/`Y[t]` is the occasion column, and
+  `Y_{it}` is the scalar entry. For an unbalanced panel `Y_i` is not a row of a
+  rectangular matrix.
+- The primary group and canonical occasion follow the documented precedence;
+  multiple grouping factors restrict the canonical `Y_i` block to the primary
+  group and make cross-factor block covariance `NotDefined`.
 - `V_i = Z_i G Z_i' + R_i`; `Cov(Y_i, Y_j) = 0` for `i != j`; group and entry
   moments are exposed and tested in symbolic and dense modes.
 - The blackboard exposes canonical `syms.Y[syms.i]`, `syms.Y[syms.t]`, and
@@ -1534,7 +1576,7 @@ reviewed and the M0.5 spike closes the SymPy assumptions.
 | Gap | Resolution |
 |---|---|
 | No task breakdown | §11 points to executable subsystem and feature task plans with TDD steps and exit criteria. |
-| Canonical group/occasion index | §2 decision 8, §3.0, and §5.0 define model B: `i` is the group, `t` the occasion, `Y_i` a row vector, `Y[:, t]`/`Y[t]` an occasion column, and `Y_{it}` a scalar. Issue #1 is resolved by this layer. |
+| Canonical group/occasion index | §2 decision 8, §3.0, and §5.0 define model B: `i` is the group, `t` the occasion, `Y_i` is the group vector (a row only for balanced panels), `Y[:, t]`/`Y[t]` an occasion column, and `Y_{it}` a scalar. §3.0 fixes primary-group and canonical-occasion precedence. Issue #1 is resolved by this layer. |
 | Group/Covariate index fields | §3.0 and §6.1 document `Group`, `Nested`, `Crossed`, and `Covariate` index symbols, defaults, string normalization, and the distinct-index validation. |
 | Row-index notation | §3.0, §3.5, and §5.0 mark `mean(row)`, `covariance(row, row)`, variograms, and BLUP as stacked-engine internals, not canonical model notation. |
 | Blackboard facade | §5.7 documents `ModelSymbols`, canonical `Y_i`/`Y[:, t]`/`Y_{it}` atoms, `E`/`Var`/`Cov`, conditional moments, and total variance; `docs/pedagogy/blackboard.md` is the worked example. |

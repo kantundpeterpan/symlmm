@@ -27,7 +27,13 @@ Cov(Y_{it}, Y_{is}) = [V_i]ts
 
 For a balanced panel, `Y` is the `m x T` matrix with groups as rows and
 occasions as columns. `Y_i = Y[i, :]` is a row vector, `Y[:, t]` (also written
-`Y[t]`) is the occasion column, and `Y_{it}` is the scalar entry.
+`Y[t]`) is the occasion column, and `Y_{it}` is the scalar entry. For an
+unbalanced panel, `Y_i` remains the group response vector but is not a row of a
+rectangular `Y` matrix; `Y_{it}` remains defined, while occasion columns are
+not.
+
+Python examples use 0-based indices. Rendered mathematical formulas use 1-based
+bounds and state the conversion when they show index ranges.
 
 The stacked observation-row index used by the matrix engine is an
 implementation detail. It is not `Y_i` and it is not the canonical public
@@ -78,6 +84,26 @@ from its label and a `Covariate` derives it from its name. Canonical examples
 pass it explicitly so the intended model notation is visible. A model rejects
 equal group and occasion index symbols with `ModelError`.
 
+`RandomSlope(coordinate=...)` takes a `Covariate` definition, not a bare
+string. A bare string is accepted only as a compatibility shim and normalized
+to `Covariate(name)`; canonical examples pass the definition.
+
+## Which group and occasion are canonical?
+
+The model resolves the canonical indices by fixed precedence:
+
+1. The primary group is the first `RandomEffects` block's `Group`; otherwise
+   the residual covariance's group definition; otherwise the first registered
+   grouping definition.
+2. The canonical occasion is the residual covariance's coordinate `Covariate`;
+   otherwise the fixed-effect slope `Covariate` with the same name as the
+   selected model coordinate; otherwise a random-slope `Covariate`; otherwise
+   there is no canonical occasion (`occasion_index is None`).
+
+Only the primary group defines `Y_i`, `V_i`, and the canonical group block.
+With multiple grouping factors, `Y_i` is still the primary group's response,
+but block covariance that would combine factors is `NotDefined`.
+
 ## Canonical model API
 
 These methods return SymPy expressions directly and do not take `form`:
@@ -91,7 +117,7 @@ model.group_count()                  # m
 model.occasion_count()               # T
 model.group_size(i)                  # n_i
 
-model.response(i)                    # Y_i row vector
+model.response(i)                    # Y_i row vector (balanced)
 model.time_response(t)               # Y[:, t] column vector
 model.response(i, t)                 # Y_it scalar
 
@@ -129,7 +155,7 @@ syms = model.symbols()
 assert syms.i == model.group_index
 assert syms.t == model.occasion_index
 
-syms.Y[syms.i]              # Y_i row vector
+syms.Y[syms.i]              # Y_i row vector (balanced)
 syms.Y[syms.t]              # Y[:, t] occasion column
 syms.Y[syms.i, syms.t]      # Y_it scalar
 
@@ -214,8 +240,8 @@ assembly, dense evaluation, variograms, and BLUP. The following methods take
 the stacked row cursor and are not canonical `Y_i` notation:
 
 ```python
-row = 0
-other = 1
+row = 0    # 0-based stacked row
+other = 1  # 0-based stacked row
 
 model.mean(row, form="sum")                  # row-level fixed mean
 model.covariance(row, other, form="sum")     # row-level covariance
@@ -236,8 +262,11 @@ entry result is `model.entry_mean(i, t)`.
 - `ModelSymbols` returns ordinary SymPy expressions. It is not a
   `sympy.stats` random-variable system and does not construct distributions.
 - Group blocks `V_i` and `Cov(Y_i, Y_j) = 0` require a single primary grouping
-  factor. Crossed random effects remain additional terms.
-- A rectangular `Y` and occasion columns require a balanced panel. Group rows
-  `Y_i` and scalar entries `Y_{it}` remain defined for unbalanced panels, but
-  ragged occasion columns are rejected with `NotDefined` rather than filled
-  with invented occasions.
+  factor. Crossed random effects remain additional terms. With multiple
+  grouping factors, block covariance that would combine factors is
+  `NotDefined`.
+- A rectangular `Y` and occasion columns require a balanced panel. `Y_i`
+  remains a group vector for unbalanced panels but is not a row of a
+  rectangular matrix; scalar entries `Y_{it}` remain defined, and ragged
+  occasion columns are rejected with `NotDefined` rather than filled with
+  invented occasions.
