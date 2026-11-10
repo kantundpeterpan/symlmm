@@ -19,6 +19,23 @@
 - Public functions/classes keep docstrings.
 - Full gate: `uv run pytest -q && uv run ruff check && uv run ruff format --check && uv run mypy src/symlmm`.
 
+## Concurrency Plan
+
+Code tasks are dependency-bound and share `model.py`, `moments.py`, and test
+files. Run only one code implementer at a time.
+
+- **Lane A — code:** Task 1 → Task 2 → Task 3, sequential.
+- **Lane B — docs/version:** Task 4 starts after Task 2 is reviewed, in a
+  separate docs-only worktree/branch. It runs in parallel with Task 3.
+- **Peak:** one code implementer + one docs agent; reviews are read-only and may
+  overlap.
+- **Integration:** merge or cherry-pick the docs commit into the code branch
+  before the final review. The controller updates `src/symlmm/__init__.py`
+  exports; no subagent edits it.
+- **Why not parallel code:** Task 1 changes the random-effect IR; Task 2 changes
+  ICC/BLUP on the same files; Task 3 touches the same model/covariance/tests.
+  Parallel code branches would conflict in `model.py` and shared tests.
+
 ---
 
 ### Task 1: RandomEffects core and LMM assembly
@@ -212,6 +229,26 @@ In `src/symlmm/model.py`:
       seen_groups.add(term.group)
   ```
 - Group registration: `registered.setdefault(term.group, Group(term.group))`.
+- Coordinate inference for Task 1 (single-coordinate compatibility):
+  ```python
+  residual_coordinate = getattr(residual, "coordinate", None)
+  slope_coordinates = tuple(
+      dict.fromkeys(
+          slope.coordinate for term in self.random for slope in term.slopes
+      )
+  )
+  declared = (
+      ([residual_coordinate] if residual_coordinate is not None else [])
+      + list(slope_coordinates)
+  )
+  unique = tuple(dict.fromkeys(declared))
+  ```
+  Keep the existing single-canonical-coordinate conflict behavior for this task;
+  Task 2 relaxes multiple slope coordinates.
+- Minimal `icc` update so Task 1's suite passes: iterate `term.slopes`, and for
+  each slope substitute
+  `self.coordinate(0, slope.coordinate, within=term.group if slope.within else None)`
+  with the requested value. Multi-coordinate `at` mapping is Task 2.
 - `dimensions`: `q = sum(self.levels(term.group) * term.dim for term in self.random)`.
 - `_random_term_entry`:
   ```python
