@@ -77,8 +77,10 @@ Task 0 (index-bearing definitions)
 **Files:**
 - Modify: `src/symlmm/specs.py`
 - Modify: `src/symlmm/model.py`
+- Modify: `src/symlmm/covariances.py`
 - Test: `tests/unit/test_specs.py`
 - Test: `tests/unit/test_indices.py`
+- Test: `tests/unit/test_residual_covariances.py`
 
 **Interfaces:**
 - Produces: `Group(name, index=...)`, `Nested(child, within, index=...)`,
