@@ -95,6 +95,13 @@ def test_random_slope_rejects_non_2x2_covariance():
         RandomSlope(group="subject", time="time", cov=Scalar(tau2))
 
 
+def test_random_intercept_rejects_non_scalar_covariance():
+    a, b = sp.symbols("a b", positive=True)
+
+    with pytest.raises(CovarianceConstructionError, match="1x1"):
+        RandomIntercept(group="subject", cov=Diagonal([a, b]))
+
+
 def _sd_corr(s0, s1, rho):
     from symlmm.covariances import Unstructured
 

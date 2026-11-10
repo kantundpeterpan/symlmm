@@ -111,7 +111,14 @@ class LMM(IndexedModel):
         self.residual = residual
         registered: dict[str, GroupSpec] = {}
         for spec in groups or ():
-            registered.setdefault(spec.name, spec)
+            existing = registered.get(spec.name)
+            if existing is None:
+                registered[spec.name] = spec
+            elif existing != spec:
+                raise ModelError(
+                    f"conflicting grouping-factor specs for {spec.name!r}: "
+                    f"{existing!r} and {spec!r}"
+                )
         for term in self.random:
             registered.setdefault(term.group, Group(term.group))
         if hasattr(residual, "group"):
@@ -129,7 +136,9 @@ class LMM(IndexedModel):
 
     def levels(self, factor: str) -> Any:
         """Return the symbolic number of levels for a grouping factor."""
-        return sp.Symbol(f"m_{factor}", positive=True, integer=True)
+        spec = self._group_spec(factor)
+        label = spec.label.replace(":", "_")
+        return sp.Symbol(f"m_{label}", positive=True, integer=True)
 
     def dimensions(self) -> tuple[Any, Any]:
         """Return observations and total random-coefficient dimension."""

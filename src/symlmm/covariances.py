@@ -196,6 +196,8 @@ class Toeplitz(ResidualCovariance):
         self.time = time
         self.variances = tuple(variances)
         self.correlations = tuple(correlations)
+        if len(self.variances) != 1:
+            raise CovarianceConstructionError("Toeplitz v0.1 requires exactly one variance")
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""

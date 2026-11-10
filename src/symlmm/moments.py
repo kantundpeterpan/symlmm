@@ -154,10 +154,12 @@ def conditional_mean(
 
 def _conditional_mean_entry(model: Any, i: Any) -> Any:
     value = model.fixed.mean_at(model, i)
-    for term in model.random:
+    for term_index, term in enumerate(model.random):
         z = term.z(model, i) if hasattr(term, "z") else sp.Matrix([1])
+        base = f"b_{term.group}_{term_index}".replace(":", "_")
+        level = model.group(i, term.group)
         for a in range(term.cov.dim):
-            value += z[a] * sp.IndexedBase(f"b_{term.group}")[a]
+            value += z[a] * sp.IndexedBase(base)[level, a]
     return value
 
 
