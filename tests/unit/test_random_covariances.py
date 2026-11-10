@@ -154,6 +154,12 @@ def test_iid_entry_and_constraints():
     assert constraint.holds({sigma2: 0}) is False
 
 
+def test_scalar_constraint_message_uses_actual_symbol():
+    s0 = sp.Symbol("s0", positive=True)
+    messages = [constraint.message for constraint in Scalar(s0).constraints()]
+    assert messages == ["s0 > 0"]
+
+
 def test_concrete_covariances_share_random_covariance_interface():
     d0 = sp.Symbol("d0", positive=True)
 

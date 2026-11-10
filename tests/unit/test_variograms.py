@@ -121,3 +121,12 @@ def test_covariogram_matrix_form_matches_covariance():
     model = _model()
     i, j = model.indices()
     assert model.covariogram(i, j, form="matrix").dummy_eq(model.covariance(i, j, form="matrix"))
+
+
+def test_covariogram_delegates_to_covariance():
+    from symlmm.moments import covariance
+    from symlmm.variogram import covariogram
+
+    model = _model()
+    i, j = model.indices()
+    assert covariogram(model, i, j, form="sum") == covariance(model, i, j, form="sum")

@@ -9,7 +9,12 @@ from typing import Any
 import sympy as sp  # type: ignore[import-untyped]
 
 from .constraints import Constraint, Relation, is_positive_definite
-from .errors import CovarianceConstructionError
+from .errors import CovarianceConstructionError, ModelError
+
+
+def _positive(value: sp.Expr) -> Constraint:
+    """Return a positivity constraint naming the actual expression."""
+    return Constraint(value, Relation.GT, f"{value} > 0")
 
 
 class CovarianceSpec(ABC):
@@ -57,7 +62,7 @@ class Scalar(CovarianceSpec):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (Constraint(self.var, Relation.GT, "tau2 > 0"),)
+        return (_positive(self.var),)
 
 
 class BlockDiag(CovarianceSpec):
@@ -144,7 +149,7 @@ class IID(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (Constraint(self.var, Relation.GT, "sigma2 > 0"),)
+        return (_positive(self.var),)
 
 
 class CompoundSymmetry(ResidualCovariance):
@@ -176,7 +181,7 @@ class CompoundSymmetry(ResidualCovariance):
                 f"rho > -1/({self.m_max}-1)",
             ),
             Constraint(1 - self.rho, Relation.GT, "rho < 1"),
-            Constraint(self.var, Relation.GT, "sigma2 > 0"),
+            _positive(self.var),
         )
 
 
@@ -224,7 +229,16 @@ class Toeplitz(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (Constraint(self.variances[0], Relation.GT, "sigma2 > 0"),)
+        return (_positive(self.variances[0]),)
+
+
+def _concrete_index(value: Any) -> int | None:
+    """Return the integer value of a concrete index, if any."""
+    if isinstance(value, int):
+        return value
+    if getattr(value, "is_Integer", False):
+        return int(value)
+    return None
 
 
 class Heteroscedastic(ResidualCovariance):
@@ -236,6 +250,10 @@ class Heteroscedastic(ResidualCovariance):
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
+        for value in (i, j):
+            index = _concrete_index(value)
+            if index is not None and not 0 <= index < len(self.variances):
+                raise ModelError(f"heteroscedastic variance index out of range: {index}")
         diagonal = sp.Piecewise(
             *((value, sp.Eq(i, k)) for k, value in enumerate(self.variances)),
             (sp.Integer(0), True),
@@ -244,10 +262,7 @@ class Heteroscedastic(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return tuple(
-            Constraint(value, Relation.GT, f"sigma2[{k}] > 0")
-            for k, value in enumerate(self.variances)
-        )
+        return tuple(_positive(value) for value in self.variances)
 
 
 class AR1(ResidualCovariance):
@@ -256,9 +271,11 @@ class AR1(ResidualCovariance):
     def __init__(self, *, group: str, time: str, var: sp.Expr, rho: sp.Expr) -> None:
         """Build an AR(1) residual covariance.
 
-        ``time`` is the named time coordinate and is used by the covariance via
-        ``model.time(i, self.time)``. With the default time resolution this is
-        the same symbol as the canonical ``model.time(i)``.
+        The covariance is ``var * rho**Abs(t_i - t_j)``. This is the discrete-time
+        AR(1) form when ``time`` is numeric and unit-spaced; for irregular or
+        non-unit spacing it is the continuous-time exponential covariance with
+        ``rho`` per unit time. ``LMM`` rejects residual/random time declarations
+        that conflict with the canonical time coordinate.
         """
         self.group = group
         self.time = time
@@ -276,7 +293,7 @@ class AR1(ResidualCovariance):
         return (
             Constraint(self.rho + 1, Relation.GT, "-1 < rho"),
             Constraint(1 - self.rho, Relation.GT, "rho < 1"),
-            Constraint(self.var, Relation.GT, "sigma2 > 0"),
+            _positive(self.var),
         )
 
 
@@ -299,9 +316,7 @@ class Diagonal(CovarianceSpec):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return tuple(
-            Constraint(value, Relation.GT, f"d{a} > 0") for a, value in enumerate(self.variances)
-        )
+        return tuple(_positive(value) for value in self.variances)
 
 
 class Unstructured(CovarianceSpec):
@@ -376,10 +391,7 @@ class Exponential(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (
-            Constraint(self.var, Relation.GT, "sigma2 > 0"),
-            Constraint(self.range, Relation.GT, "range > 0"),
-        )
+        return (_positive(self.var), _positive(self.range))
 
 
 class Gaussian(ResidualCovariance):
@@ -399,10 +411,7 @@ class Gaussian(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (
-            Constraint(self.var, Relation.GT, "sigma2 > 0"),
-            Constraint(self.range, Relation.GT, "range > 0"),
-        )
+        return (_positive(self.var), _positive(self.range))
 
 
 class Matern(ResidualCovariance):
@@ -436,7 +445,4 @@ class Matern(ResidualCovariance):
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""
-        return (
-            Constraint(self.var, Relation.GT, "sigma2 > 0"),
-            Constraint(self.range, Relation.GT, "range > 0"),
-        )
+        return (_positive(self.var), _positive(self.range))

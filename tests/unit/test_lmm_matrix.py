@@ -116,3 +116,17 @@ def test_multiple_random_terms_sum_dimensions():
     assert q == sp.Symbol("m_subject", positive=True, integer=True) + sp.Symbol(
         "m_item", positive=True, integer=True
     )
+
+
+def test_levels_match_composite_dimensions():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    nested = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[RandomIntercept(group="visit", cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        groups=[Nested("visit", within="subject")],
+    )
+    assert nested.levels("visit") == sp.Symbol("m_subject_visit", positive=True, integer=True)
+    assert nested.dimensions()[1] == nested.levels("visit")

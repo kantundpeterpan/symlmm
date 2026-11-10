@@ -76,7 +76,7 @@ def test_spatial_constraints(factory):
 
     constraints = factory(sigma2, phi).constraints()
 
-    assert [constraint.message for constraint in constraints] == ["sigma2 > 0", "range > 0"]
+    assert [constraint.message for constraint in constraints] == ["sigma2 > 0", "phi > 0"]
     var_constraint, range_constraint = constraints
     assert var_constraint.holds({sigma2: 1, phi: 1}) is True
     assert var_constraint.holds({sigma2: -1, phi: 1}) is False
