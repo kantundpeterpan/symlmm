@@ -95,7 +95,7 @@ def test_position_covariance_requires_single_grouping_factor():
         panel.position_covariance(0, 0)
 
 
-def test_symbolic_position_code_uses_position_index():
+def test_symbolic_position_code_uses_factor_label():
     model = _model()
     panel = PanelView(
         model,
@@ -103,7 +103,9 @@ def test_symbolic_position_code_uses_position_index():
         Position("p", index=sp.Symbol("s", integer=True)),
     )
     i = sp.Symbol("i", integer=True)
-    assert panel.position_code(i) == sp.IndexedBase("k_s", shape=(4,))[i]
+    expected = sp.IndexedBase("k_F", shape=(4,))[i]
+    assert panel.position_code(i) == expected
+    assert panel.position_code(i) == model._occasion_code(i, "F")
 
 
 def test_unbalanced_panel_rejects_position_mean_and_covariance():

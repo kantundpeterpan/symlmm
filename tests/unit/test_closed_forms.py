@@ -75,10 +75,12 @@ def test_ar1_within_resolves_group_delta():
     i, j = model.indices()
 
     inside = model.covariance_entry(i, j, within="subject")
+    panel = model.panel("subject", "visit_time")
+    assert panel.position_code(i) == model._occasion_code(i, "subject")
     common = sp.Symbol("g_subject", integer=True)
     lag = sp.Abs(
-        sp.IndexedBase("visit_time")[common, model._occasion_code(i, "subject")]
-        - sp.IndexedBase("visit_time")[common, model._occasion_code(j, "subject")]
+        sp.IndexedBase("visit_time")[common, panel.position_code(i)]
+        - sp.IndexedBase("visit_time")[common, panel.position_code(j)]
     )
     assert sp.simplify(inside - sigma2 * rho**lag) == 0
     assert not inside.has(sp.KroneckerDelta)
@@ -138,9 +140,9 @@ def test_ar1_uses_named_coordinate_as_canonical_symbol():
 
     assert ar1.coordinate.name == "visit_time"
     entry = ar1.entry(i, j, model)
-    inside = sp.IndexedBase("visit_time")[
-        model.level_code("subject", i), model._occasion_code(i, "subject")
-    ]
+    panel = model.panel("subject", "visit_time")
+    assert panel.position_code(i) == model._occasion_code(i, "subject")
+    inside = sp.IndexedBase("visit_time")[model.level_code("subject", i), panel.position_code(i)]
     assert inside in entry.atoms(sp.Indexed)
 
 

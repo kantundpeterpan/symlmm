@@ -494,10 +494,24 @@ def test_dense_per_factor_occasion_mapping():
         subject=[0, 0, 1, 1],
         item=[0, 1, 0, 1],
         visit=[0, 1, 0, 1],
-        occasion=[0, 0, 0, 0],
+        occasion=[2, 2, 1, 1],
     )
-    assert [dense.panel("subject", "visit").position_code(k) for k in range(4)] == [0, 1, 0, 1]
-    assert [dense.panel("item", "occasion").position_code(k) for k in range(4)] == [0, 0, 0, 0]
+    subject_column = model._occasion_column("subject")
+    item_column = model._occasion_column("item")
+    assert subject_column == "visit"
+    assert item_column == "occasion"
+    subject_codes = [
+        dense.panel("subject", Position("visit", column=subject_column)).position_code(k)
+        for k in range(4)
+    ]
+    item_codes = [
+        dense.panel("item", Position("occasion", column=item_column)).position_code(k)
+        for k in range(4)
+    ]
+    assert subject_codes == [0, 1, 0, 1]
+    assert item_codes == [0, 0, 1, 1]
+    assert dense._dense_occasion_codes(dense.factor("subject")) == subject_codes
+    assert dense._dense_occasion_codes(dense.factor("item")) == item_codes
 
 
 def test_dense_random_slope_within_false_uses_global_coordinates():

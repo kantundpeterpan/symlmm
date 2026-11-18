@@ -144,12 +144,10 @@ class PanelView:
 
     def position_code(self, i: Any) -> Any:
         """Return the position code for observation row `i`."""
-        selected = self._require_position()
+        self._require_position()
         if self.model._dense:
             return self.grid.position_codes()[int(i)]
-        index = selected.index
-        label = index.name if index is not None else selected.name
-        return sp.IndexedBase(f"k_{label}", shape=(self.model.n,))[i]
+        return self.model._occasion_code(i, self.factor.name)
 
     def entry_mean(self, level: Any, position: Any) -> Any:
         """Return E[Y_level,position]."""
