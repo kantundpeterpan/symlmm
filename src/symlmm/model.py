@@ -16,13 +16,14 @@ import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError, NotDefined
-from .specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects
+from .factors import FactorResolver
+from .specs import Covariate, Crossed, Factor, FactorSpec, Fixed, Group, Nested, RandomEffects
 from .symbols import observation_index
 
 if TYPE_CHECKING:
     from .forms import Form
 
-GroupSpec = Group | Nested | Crossed
+GroupSpec = FactorSpec
 
 __all__ = ["IID", "LMM", "IndexedModel"]
 
@@ -51,14 +52,6 @@ def _residual_covariate(residual: ResidualCovariance) -> Covariate | None:
     return None
 
 
-def _primary_definition(
-    definition: GroupSpec,
-    registered: Mapping[str, GroupSpec],
-) -> GroupSpec:
-    """Return the registered definition for `definition`, when present."""
-    return registered.get(definition.name, definition)
-
-
 def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
     """Return a total ordering key for a derived-occasion coordinate value."""
     try:
@@ -84,6 +77,8 @@ class IndexedModel:
     ) -> None:
         self.n = n
         self.groups = tuple(groups)
+        self._factor_resolver = FactorResolver(self.groups)
+        self._factors = self._factor_resolver.resolve_all()
         self.coordinate_name = coordinate
         self.occasion_names = occasion
         self.covariates = tuple(covariates)
@@ -98,11 +93,27 @@ class IndexedModel:
         """Return the two observation indices used by entry queries."""
         return self._i, self._j
 
-    def _group_spec(self, factor: str) -> GroupSpec:
-        for spec in self.groups:
-            if spec.name == factor:
-                return spec
-        raise ModelError(f"unknown grouping factor: {factor!r}")
+    def factor(self, ref: Any) -> Factor:
+        """Return a resolved factor by name, path, declaration, or factor."""
+        return self._factor_resolver.resolve(ref)
+
+    def factors(self) -> tuple[Factor, ...]:
+        """Return all resolved factors in declaration order."""
+        return self._factors
+
+    def level_code(self, factor: Any, i: Any) -> Any:
+        """Return the factor level code for observation row `i`."""
+        resolved = self.factor(factor)
+        if self._dense:
+            return self._dense_group_codes(resolved)[int(i)]
+        label = resolved.label.replace(":", "_")
+        return sp.IndexedBase(f"g_{label}", shape=(self.n,))[i]
+
+    def _group_spec(self, factor: str) -> Factor:
+        try:
+            return self._factor_resolver.resolve(factor)
+        except ModelError as exc:
+            raise ModelError(f"unknown grouping factor: {factor!r}") from exc
 
     def _observation_column(self, name: str) -> Sequence[Any]:
         """Return the dense observation column named `name`."""
@@ -117,11 +128,7 @@ class IndexedModel:
 
     def group(self, i: Any, factor: str) -> Any:
         """Return the group-level index for row `i` and factor `factor`."""
-        spec = self._group_spec(factor)
-        if self._dense:
-            return self._dense_group_codes(spec)[int(i)]
-        label = spec.label.replace(":", "_")
-        return sp.IndexedBase(f"g_{label}", shape=(self.n,))[i]
+        return self.level_code(factor, i)
 
     def occasion(self, i: Any, factor: str) -> Any:
         """Return the within-group occasion index for row `i` and factor `factor`."""
@@ -151,31 +158,23 @@ class IndexedModel:
             return self._nested_coordinate_value(i, selected_name, spec)
         return sp.IndexedBase(selected_name)[self.group(i, within), self.occasion(i, within)]
 
-    def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
-        """Return integer codes for the composite label of `spec`."""
-        cached = self._group_cache.get(spec.label)
+    def _dense_group_codes(self, factor: Factor) -> list[int]:
+        """Return integer codes for a resolved factor's component path."""
+        cached = self._group_cache.get(factor.label)
         if cached is not None:
             return cached
         raw: list[Any]
-        if isinstance(spec, Nested):
-            if spec.label in self._observations:
-                raw = list(self._observation_column(spec.label))
-            else:
-                left = self._observation_column(spec.within)
-                right = self._observation_column(spec.child)
-                raw = [f"{a}:{b}" for a, b in zip(left, right, strict=True)]
-        elif isinstance(spec, Crossed):
-            if spec.label in self._observations:
-                raw = list(self._observation_column(spec.label))
-            else:
-                left = self._observation_column(spec.left)
-                right = self._observation_column(spec.right)
-                raw = [f"{a}:{b}" for a, b in zip(left, right, strict=True)]
+        composite = ":".join(factor.components)
+        if composite in self._observations:
+            raw = list(self._observation_column(composite))
         else:
-            raw = list(self._observation_column(spec.name))
+            columns = [list(self._observation_column(name)) for name in factor.components]
+            raw = [
+                ":".join(str(value) for value in values) for values in zip(*columns, strict=True)
+            ]
         codes = {label: code for code, label in enumerate(sorted(set(raw), key=str))}
         result = [codes[label] for label in raw]
-        self._group_cache[spec.label] = result
+        self._group_cache[factor.label] = result
         return result
 
     def _occasion_column(self, factor: str) -> str | None:
@@ -184,7 +183,7 @@ class IndexedModel:
             return self.occasion_names.get(factor)
         return self.occasion_names
 
-    def _within_symbol(self, spec: GroupSpec) -> sp.Symbol:
+    def _within_symbol(self, spec: Factor) -> sp.Symbol:
         """Return the cached common-level symbol for `spec`."""
         key = spec.label
         symbol = self._within_symbols.get(key)
@@ -193,7 +192,7 @@ class IndexedModel:
             self._within_symbols[key] = symbol
         return symbol
 
-    def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
+    def _dense_occasion_codes(self, spec: Factor) -> list[int]:
         """Return integer occasion codes within each group for `spec`.
 
         Derived occasion codes are ordered symbolically when possible and fall
@@ -234,7 +233,7 @@ class IndexedModel:
         self._occasion_cache[spec.label] = result
         return result
 
-    def _nested_coordinate_value(self, i: Any, name: str, spec: GroupSpec) -> Any:
+    def _nested_coordinate_value(self, i: Any, name: str, spec: Factor) -> Any:
         """Return a dense coordinate validated as constant within group/occasion."""
         key = (name, spec.label)
         mapping = self._coordinate_cache.get(key)
@@ -297,25 +296,29 @@ class LMM(IndexedModel):
                     "combine intercepts and slopes into one block"
                 )
             seen_groups.add(group_name)
-        registered: dict[str, GroupSpec] = {}
-
-        def register(spec: GroupSpec) -> None:
-            existing = registered.get(spec.name)
-            if existing is None:
-                registered[spec.name] = spec
-            elif existing != spec:
-                raise ModelError(
-                    f"conflicting grouping-factor specs for {spec.name!r}: "
-                    f"{existing!r} and {spec!r}"
-                )
-
+        specs: list[FactorSpec] = []
+        declared: dict[str, FactorSpec] = {}
         for spec in groups or ():
-            register(spec)
+            existing = declared.get(spec.name)
+            if existing is None:
+                declared[spec.name] = spec
+                specs.append(spec)
+            elif existing != spec:
+                specs.append(spec)
+
+        def add_implicit(spec: FactorSpec) -> None:
+            existing = declared.get(spec.name)
+            if existing is None:
+                declared[spec.name] = spec
+                specs.append(spec)
+            elif not isinstance(spec, Group) and existing != spec:
+                specs.append(spec)
+
         for term in self.random:
-            registered.setdefault(term.group.name, term.group)
+            add_implicit(term.group)
         residual_group = _residual_group(residual)
         if residual_group is not None:
-            registered.setdefault(residual_group.name, residual_group)
+            add_implicit(residual_group)
         residual_covariate = _residual_covariate(residual)
         residual_coordinate = residual_covariate.name if residual_covariate is not None else None
         slope_coordinates = tuple(
@@ -335,13 +338,21 @@ class LMM(IndexedModel):
         else:
             coordinate_name = None
 
-        primary: GroupSpec | None
+        super().__init__(
+            n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
+            groups=tuple(specs),
+            coordinate=coordinate_name,
+            occasion=occasion,
+            covariates=tuple(covariate.name for covariate in fixed.covariates()),
+        )
+
+        primary: Factor | None
         if self.random:
-            primary = _primary_definition(self.random[0].group, registered)
+            primary = self.factor(self.random[0].group.name)
         elif residual_group is not None:
-            primary = _primary_definition(residual_group, registered)
-        elif registered:
-            primary = next(iter(registered.values()))
+            primary = self.factor(residual_group.name)
+        elif self._factors:
+            primary = self._factors[0]
         else:
             primary = None
 
@@ -353,18 +364,19 @@ class LMM(IndexedModel):
         if group_index is not None and occasion_index is not None and group_index == occasion_index:
             raise ModelError("group and occasion indices must be distinct")
 
-        self.primary_group_definition = primary
+        self.primary_group_definition = self._declaration(primary)
         self.occasion_definition = occasion_definition
         self.group_index = group_index
         self.occasion_index = occasion_index
 
-        super().__init__(
-            n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
-            groups=tuple(registered.values()),
-            coordinate=coordinate_name,
-            occasion=occasion,
-            covariates=tuple(covariate.name for covariate in fixed.covariates()),
-        )
+    def _declaration(self, factor: Factor | None) -> FactorSpec | Factor | None:
+        """Return the declaration backing a resolved factor, when present."""
+        if factor is None:
+            return None
+        for spec in self.groups:
+            if spec.name == factor.name:
+                return spec
+        return factor
 
     def _canonical_covariate(
         self,

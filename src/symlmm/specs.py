@@ -34,14 +34,41 @@ class Group:
 
 
 @dataclass(frozen=True)
+class Factor:
+    """A resolved grouping dimension."""
+
+    name: str
+    label: str
+    components: tuple[str, ...]
+    index: sp.Symbol
+    parent: Factor | None = None
+    kind: str = "group"
+
+
+@dataclass(frozen=True)
+class Position:
+    """An optional within-block position axis."""
+
+    name: str
+    column: str | None = None
+    index: sp.Symbol | None = None
+
+    def __post_init__(self) -> None:
+        if self.index is None:
+            object.__setattr__(self, "index", sp.Symbol(self.name, integer=True))
+
+
+@dataclass(frozen=True)
 class Nested:
     """A factor nested within another factor."""
 
     child: str
-    within: str
+    within: str | FactorSpec
     index: sp.Symbol | None = None
 
     def __post_init__(self) -> None:
+        if isinstance(self.within, str) and not self.within:
+            raise ModelError("Nested.within must be a non-empty name or factor definition")
         if self.index is None:
             object.__setattr__(self, "index", sp.Symbol(self.label, integer=True))
 
@@ -52,31 +79,63 @@ class Nested:
 
     @property
     def label(self) -> str:
-        """Return the composite symbol label for this grouping factor."""
-        return f"{self.within}:{self.child}"
+        """Return the declaration-level composite label."""
+        parent = self.within if not isinstance(self.within, str) else None
+        prefix = parent.label if parent is not None else self.within
+        return f"{prefix}:{self.child}"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Crossed:
-    """A crossed combination of factors."""
+    """A crossed combination of two or more factors."""
 
-    left: str
-    right: str
-    index: sp.Symbol | None = None
+    components: tuple[str | FactorSpec, ...]
+    index: sp.Symbol | None
+    explicit_name: str | None
 
-    def __post_init__(self) -> None:
-        if self.index is None:
+    def __init__(
+        self,
+        *components: str | FactorSpec,
+        index: sp.Symbol | None = None,
+        name: str | None = None,
+    ) -> None:
+        """Build a crossed factor declaration from two or more components."""
+        if len(components) < 2:
+            raise ModelError("Crossed requires at least two components")
+        object.__setattr__(self, "components", tuple(components))
+        object.__setattr__(self, "index", index)
+        object.__setattr__(self, "explicit_name", name)
+        if index is None:
             object.__setattr__(self, "index", sp.Symbol(self.label, integer=True))
 
     @property
+    def left(self) -> str | FactorSpec:
+        """Return the first component."""
+        return self.components[0]
+
+    @property
+    def right(self) -> str | FactorSpec:
+        """Return the final component."""
+        return self.components[-1]
+
+    @property
     def name(self) -> str:
-        """Return the factor name used in accessor lookups."""
-        return self.right
+        """Return the explicit or legacy lookup name."""
+        if self.explicit_name is not None:
+            return self.explicit_name
+        right = self.right
+        return right.name if not isinstance(right, str) else right
 
     @property
     def label(self) -> str:
-        """Return the composite symbol label for this grouping factor."""
-        return f"{self.left}:{self.right}"
+        """Return the declaration-level composite label."""
+        parts = []
+        for component in self.components:
+            parts.append(component if isinstance(component, str) else component.label)
+        return ":".join(parts)
+
+
+FactorSpec = Group | Nested | Crossed
 
 
 @dataclass(frozen=True)
@@ -91,7 +150,7 @@ class Covariate:
             object.__setattr__(self, "index", sp.Symbol(self.name, integer=True))
 
 
-def _coerce_group(value: str | Group) -> Group:
+def _coerce_group(value: str | FactorSpec) -> FactorSpec:
     """Normalize a grouping factor definition."""
     return Group(value) if isinstance(value, str) else value
 
@@ -168,23 +227,26 @@ class RandomSlope:
 class RandomEffects:
     """One group's joint random-effect design and covariance."""
 
-    group: Group
+    group: FactorSpec
     cov: CovarianceSpec
     intercept: bool = False
     slopes: tuple[RandomSlope, ...] = ()
+    name: str | None = None
 
     def __init__(
         self,
-        group: str | Group,
+        group: str | FactorSpec,
         cov: CovarianceSpec,
         intercept: bool = False,
         slopes: tuple[RandomSlope, ...] = (),
+        name: str | None = None,
     ) -> None:
         """Build one random-effects block and validate its covariance dimension."""
         object.__setattr__(self, "group", _coerce_group(group))
         object.__setattr__(self, "cov", cov)
         object.__setattr__(self, "intercept", intercept)
         object.__setattr__(self, "slopes", tuple(slopes))
+        object.__setattr__(self, "name", name)
         if not intercept and not self.slopes:
             raise CovarianceConstructionError("RandomEffects requires an intercept or slope")
         if cov.dim != self.dim:
