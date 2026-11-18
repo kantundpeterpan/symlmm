@@ -104,3 +104,12 @@ def test_symbolic_position_code_uses_position_index():
     )
     i = sp.Symbol("i", integer=True)
     assert panel.position_code(i) == sp.IndexedBase("k_s", shape=(4,))[i]
+
+
+def test_unbalanced_panel_rejects_position_mean_and_covariance():
+    dense = _model().dense(F=[0, 0, 1], p=[10, 11, 20])
+    panel = PanelView(dense, dense.factor("F"), Position("p"))
+    with pytest.raises(NotDefined, match="balanced"):
+        panel.position_mean(0)
+    with pytest.raises(NotDefined, match="balanced"):
+        panel.position_covariance(0, 1)

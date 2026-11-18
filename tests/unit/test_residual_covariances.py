@@ -73,6 +73,10 @@ class _NumericModel:
         """Return a constant group label."""
         return "subject"
 
+    def level_code(self, factor, i):
+        """Return a constant group code."""
+        return "subject"
+
     def coordinate(self, i, name, within=None):
         """Return the observation position as its coordinate value."""
         return i

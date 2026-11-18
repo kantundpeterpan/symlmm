@@ -144,3 +144,13 @@ def test_panel_without_position_rejects_position_moments():
     for call in calls:
         with pytest.raises(NotDefined, match="position axis"):
             call()
+
+
+def test_secondary_factor_panel_symbols_use_panel_term():
+    model = _two_factor_panel_model()
+    panel = model.panel("G", "p")
+    syms = panel.symbols()
+    term = next(item for item in model.random if model.factor(item.group.name) == panel.factor)
+    assert syms.G == term.cov.dense()
+    assert syms.E(syms.b[syms.i]).shape == (term.dim, 1)
+    assert syms.Var(syms.b[syms.i]) == term.cov.dense()

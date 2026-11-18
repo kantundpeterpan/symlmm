@@ -176,6 +176,7 @@ class PanelView:
     def position_mean(self, position: Any) -> Any:
         """Return E[Y_{.,position}]."""
         self._require_position()
+        self.position_count()
         count = self.level_count()
         if not isinstance(count, int):
             raise NotDefined("position means require a concrete level count")
@@ -184,6 +185,7 @@ class PanelView:
     def position_covariance(self, p1: Any, p2: Any) -> Any:
         """Return Cov(Y_{.,p1}, Y_{.,p2})."""
         self._require_position()
+        self.position_count()
         count = self.level_count()
         if not isinstance(count, int):
             raise NotDefined("position covariance requires a concrete level count")
@@ -222,6 +224,13 @@ class PanelAdapter:
     def primary_group(self) -> str:
         """Return the panel factor's name."""
         return cast(str, self.panel.factor.name)
+
+    def _primary_random_term(self) -> Any:
+        """Return the random-effects term for this panel's factor, if any."""
+        for term in self.panel.model.random:
+            if self.panel.model.factor(term.group.name) == self.panel.factor:
+                return term
+        return None
 
     def group_count(self) -> Any:
         """Return the number of levels in this panel's factor."""

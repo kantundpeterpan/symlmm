@@ -200,7 +200,9 @@ class CompoundSymmetry(ResidualCovariance):
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+        same_group = sp.KroneckerDelta(
+            model.level_code(self.group, i), model.level_code(self.group, j)
+        )
         return sp.Piecewise(
             (self.var + self.nugget, sp.Eq(i, j)),
             (self.var * self.rho * same_group, True),
@@ -251,7 +253,7 @@ class Toeplitz(ResidualCovariance):
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(
-            model.group(i, self.group.name), model.group(j, self.group.name)
+            model.level_code(self.group.name, i), model.level_code(self.group.name, j)
         )
         ti = model.coordinate(i, self.coordinate.name, within=self.group.name)
         tj = model.coordinate(j, self.coordinate.name, within=self.group.name)
@@ -349,7 +351,7 @@ class AR1(ResidualCovariance):
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(
-            model.group(i, self.group.name), model.group(j, self.group.name)
+            model.level_code(self.group.name, i), model.level_code(self.group.name, j)
         )
         ti = model.coordinate(i, self.coordinate.name, within=self.group.name)
         tj = model.coordinate(j, self.coordinate.name, within=self.group.name)
@@ -475,7 +477,9 @@ class _SpatialCovariance(ResidualCovariance):
         distance = _euclidean_distance(i, j, model, self.coords, self.group)
         value = self.entry_from_distance(distance)
         if self.group is not None:
-            value *= sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+            value *= sp.KroneckerDelta(
+                model.level_code(self.group, i), model.level_code(self.group, j)
+            )
         return value + _nugget_entry(self.nugget, i, j)
 
     @abstractmethod

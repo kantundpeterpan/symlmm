@@ -222,3 +222,60 @@ def test_random_design_rejects_unknown_terms():
         block.random_design(term="missing")
     with pytest.raises(ModelError, match="unknown term"):
         block.random_design(term=terms(model)[0])
+
+
+def _two_factor():
+    b0 = sp.Symbol("b0")
+    f2 = sp.Symbol("f2", positive=True)
+    g2 = sp.Symbol("g2", positive=True)
+    s2 = sp.Symbol("s2", positive=True)
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(group="F", intercept=True, cov=Scalar(f2)),
+            RandomEffects(group="G", intercept=True, cov=Scalar(g2)),
+        ],
+        residual=IID(var=s2),
+        n=6,
+    )
+
+
+def test_cross_block_covariance_terms_sum_to_cross_covariance():
+    model = _two_factor()
+    dense = model.dense(
+        F=[0, 0, 0, 1, 1, 1],
+        G=[0, 1, 2, 0, 1, 2],
+    )
+    left = Block(dense, dense.factor("F"), 0)
+    right = Block(dense, dense.factor("G"), 0)
+    assert left.rows() != right.rows()
+    values = left.covariance_terms(right)
+    assert list(values)[-1] == "residual"
+    zero = sp.zeros(left.size(), right.size())
+    assert sum(values.values(), zero) == left.cross_covariance(right)
+    assert values["residual"] == left.cross_residual(right)
+
+
+def test_model_covariance_terms_dispatches_cross_block_terms():
+    model = _two_factor()
+    dense = model.dense(
+        F=[0, 0, 0, 1, 1, 1],
+        G=[0, 1, 2, 0, 1, 2],
+    )
+    left = Block(dense, dense.factor("F"), 0)
+    right = Block(dense, dense.factor("G"), 0)
+    assert dense.covariance_terms(left, right) == left.covariance_terms(right)
+
+
+def test_symbolic_cross_block_covariance_terms_sum_to_total():
+    model = _two_factor()
+    f_level = sp.Symbol("f", integer=True)
+    g_level = sp.Symbol("g", integer=True)
+    left = Block(model, model.factor("F"), f_level)
+    right = Block(model, model.factor("G"), g_level)
+    values = left.covariance_terms(right)
+    zero = sp.ZeroMatrix(left.size(), right.size())
+    assert sum(values.values(), zero) == left.cross_covariance(right)
+    assert values["residual"] == block_cross_residual(
+        model.factor("F"), f_level, model.factor("G"), g_level
+    )

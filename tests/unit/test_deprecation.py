@@ -64,3 +64,15 @@ def test_no_coordinate_symbols_work():
     assert syms.t is None
     assert syms.i == model.group_index
     assert syms.E(syms.b[syms.i]) == sp.zeros(model.random[0].dim, 1)
+
+
+def test_group_alias_warns():
+    model = _model()
+    with pytest.warns(DeprecationWarning, match="level_code"):
+        assert model.group(0, "F") == model.level_code("F", 0)
+
+
+def test_occasion_alias_warns():
+    model = _model()
+    with pytest.warns(DeprecationWarning, match="position_code"):
+        assert model.occasion(0, "F") == 0

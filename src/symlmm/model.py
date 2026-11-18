@@ -1,14 +1,12 @@
 """Model base classes and index accessors.
 
-Canonical notation uses ``i`` for the group and ``t`` for the occasion:
-``Y_i`` is the group response row in a balanced panel, ``Y[:, t]`` is the
-occasion column, and ``Y_{it}`` is the scalar response. The stacked
-observation-row cursor used internally by the matrix engine is an
-implementation detail, not public model notation.
+Row-level accessors address the stacked observation vector. Blocks, panels, and
+positions provide the factor-first views built on top of those rows.
 """
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -137,16 +135,30 @@ class IndexedModel:
         return sp.sympify(self._observation_column(name)[int(i)])
 
     def group(self, i: Any, factor: str) -> Any:
-        """Return the group-level index for row `i` and factor `factor`."""
+        """Deprecated: use level_code(factor, i)."""
+        warnings.warn(
+            "group is deprecated; use level_code(factor, i)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.level_code(factor, i)
 
-    def occasion(self, i: Any, factor: str) -> Any:
+    def _occasion_code(self, i: Any, factor: str) -> Any:
         """Return the within-group occasion index for row `i` and factor `factor`."""
         spec = self._group_spec(factor)
         if self._dense:
             return self._dense_occasion_codes(spec)[int(i)]
         label = spec.label.replace(":", "_")
         return sp.IndexedBase(f"k_{label}", shape=(self.n,))[i]
+
+    def occasion(self, i: Any, factor: str) -> Any:
+        """Deprecated: use panel(...).position_code(i)."""
+        warnings.warn(
+            "occasion is deprecated; use panel(...).position_code(i)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._occasion_code(i, factor)
 
     def coordinate(
         self,
@@ -166,7 +178,9 @@ class IndexedModel:
         spec = self._group_spec(within)
         if self._dense:
             return self._nested_coordinate_value(i, selected_name, spec)
-        return sp.IndexedBase(selected_name)[self.group(i, within), self.occasion(i, within)]
+        return sp.IndexedBase(selected_name)[
+            self.level_code(spec.name, i), self._occasion_code(i, spec.name)
+        ]
 
     def _dense_group_codes(self, factor: Factor) -> list[int]:
         """Return integer codes for a resolved factor's component path."""
@@ -290,7 +304,7 @@ class IndexedModel:
                     )
                 mapping[pair] = value
             self._coordinate_cache[key] = mapping
-        return mapping[(self.group(i, spec.name), self.occasion(i, spec.name))]
+        return mapping[(self.level_code(spec.name, i), self._occasion_code(i, spec.name))]
 
     def covariate(self, i: Any, name: str | Covariate) -> Any:
         """Return a covariate value for observation `i`."""
@@ -481,7 +495,7 @@ class LMM(IndexedModel):
         factor = self._require_group_index()
         if not self._dense:
             raise ModelError("group rows are available only in dense mode")
-        rows = [k for k in range(self.n) if self.group(k, factor) == group]
+        rows = [k for k in range(self.n) if self.level_code(factor, k) == group]
         if self.occasion_index is None:
             return rows
         codes = self._dense_occasion_codes(self._group_spec(factor))
@@ -536,7 +550,7 @@ class LMM(IndexedModel):
         from .decomposition import covariance_terms
 
         if isinstance(a, Block) and isinstance(b, Block):
-            return a.covariance_terms()
+            return a.covariance_terms(b)
         if isinstance(a, Block) or isinstance(b, Block):
             raise ModelError("covariance_terms requires two rows or two blocks")
         return covariance_terms(self, a, b)
@@ -621,8 +635,6 @@ class LMM(IndexedModel):
 
     def _deprecated(self, name: str) -> Any:
         """Return the default panel view and emit a deprecation warning."""
-        import warnings
-
         warnings.warn(
             f"{name} is deprecated; use panel(...)",
             DeprecationWarning,
@@ -719,8 +731,6 @@ class LMM(IndexedModel):
 
     def symbols(self) -> Any:
         """Deprecated: use panel(...).symbols()."""
-        import warnings
-
         warnings.warn("symbols is deprecated; use panel(...)", DeprecationWarning, stacklevel=2)
         return self.panel().symbols()
 
@@ -863,14 +873,19 @@ class LMM(IndexedModel):
         zj = term.z(self, j)
         value = (zi.T * term.cov.dense() * zj)[0, 0]
         return value * sp.KroneckerDelta(
-            self.group(i, term.group.name), self.group(j, term.group.name)
+            self.level_code(term.group.name, i), self.level_code(term.group.name, j)
         )
 
     def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
         """Resolve a factor's delta by placing both rows in one common level."""
         spec = self._group_spec(within)
         common = self._within_symbol(spec)
-        return expr.subs({self.group(i, within): common, self.group(j, within): common})
+        return expr.subs(
+            {
+                self.level_code(within, i): common,
+                self.level_code(within, j): common,
+            }
+        )
 
     def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
         """Return the structured sum-form covariance entry.

@@ -160,15 +160,28 @@ class Block:
         resolved = _resolve_term(self.model, term)
         return block_term_design(self.factor, self.level, resolved)
 
-    def covariance_terms(self) -> dict[str, Any]:
-        """Return per-term contributions to Cov(Y_block)."""
+    def cross_residual(self, other: Block) -> Any:
+        """Return the residual cross-covariance between this block and `other`."""
+        if self.model is not other.model:
+            raise ModelError("cross covariance requires blocks from the same model")
+        if self.model._dense:
+            matrix = self.model.matrix_r()
+            return matrix[self.rows(), :][:, other.rows()]
+        return block_cross_residual(self.factor, self.level, other.factor, other.level)
+
+    def covariance_terms(self, other: Block | None = None) -> dict[str, Any]:
+        """Return per-term contributions to Cov(Y_block, Y_other)."""
         from .decomposition import RESIDUAL, terms
 
+        target = self if other is None else other
+        if self.model is not target.model:
+            raise ModelError("cross covariance requires blocks from the same model")
         values: dict[str, Any] = {}
         for term in terms(self.model):
             Z = self.random_design(term=term.name)
-            values[term.name] = Z * term.random.cov.dense() * Z.T
-        values[RESIDUAL] = self.residual()
+            Z_other = target.random_design(term=term.name)
+            values[term.name] = Z * term.random.cov.dense() * Z_other.T
+        values[RESIDUAL] = self.cross_residual(target)
         return values
 
     def partial_covariance(self, other: Block, *, exclude: tuple[str, ...] = ()) -> Any:

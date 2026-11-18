@@ -39,7 +39,10 @@ def terms(model: Any) -> tuple[Term, ...]:
 
 
 def validate_exclusions(terms: tuple[Term, ...], exclude: tuple[str, ...]) -> tuple[str, ...]:
-    """Validate and de-duplicate public exclusion names."""
+    """Validate public exclusion names, rejecting duplicates and unknowns."""
+    duplicate = sorted({name for name in exclude if exclude.count(name) > 1})
+    if duplicate:
+        raise ModelError(f"duplicate term names: {duplicate!r}")
     names = {term.name for term in terms}
     names.add(RESIDUAL)
     unknown = sorted(set(exclude) - names)

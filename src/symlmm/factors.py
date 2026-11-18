@@ -61,6 +61,9 @@ class FactorResolver:
         if isinstance(spec, Nested):
             if spec.child in stack:
                 raise ModelError(f"cycle in nested factors: {' -> '.join(stack + (spec.child,))}")
+            ancestor = spec.within if isinstance(spec.within, str) else spec.within.name
+            if ancestor == spec.child:
+                raise ModelError(f"cycle in nested factors: {spec.child} -> {spec.child}")
             parent = self._resolve_reference(spec.within, stack + (spec.child,), exclude=spec)
             if parent is not None:
                 path = (*parent.components, spec.child)
@@ -130,6 +133,11 @@ class FactorResolver:
                 raise ModelError(
                     f"conflicting grouping-factor specs for {factor.name!r}: "
                     f"{existing.label!r} and {factor.label!r}"
+                )
+            if existing.index != factor.index or existing.kind != factor.kind:
+                raise ModelError(
+                    f"conflicting grouping-factor specs for {factor.name!r}: "
+                    f"{existing!r} and {factor!r}"
                 )
             return existing
         existing_label = self._by_label.get(factor.label)

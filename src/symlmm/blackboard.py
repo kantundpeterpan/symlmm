@@ -1,8 +1,8 @@
-"""Blackboard-style symbolic moments on canonical group/occasion indexing.
+"""Blackboard-style symbolic moments over factor and position indexing.
 
-The facade delegates moment definitions to the canonical model layer, including
-the private ``_entry_row`` and ``_primary_random_term`` helpers, so covariance
-math stays in one place.
+The facade delegates moment definitions to the block and panel layers,
+including the private ``_entry_row`` and ``_primary_random_term`` helpers, so
+covariance math stays in one place.
 """
 
 from __future__ import annotations
@@ -195,7 +195,7 @@ class GroupEffectSymbols:
         self.model = model
         self._by_expression: dict[Any, Any] = {}
         self._by_group: dict[Any, Any] = {}
-        if model.group_index is not None and model.random:
+        if model.group_index is not None and model._primary_random_term() is not None:
             primary = model.random_effect(model.group_index)
             self._by_expression[primary] = model.group_index
             self._by_group[model.group_index] = primary

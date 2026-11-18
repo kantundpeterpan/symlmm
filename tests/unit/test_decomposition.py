@@ -76,3 +76,9 @@ def test_residual_name_is_reserved():
     )
     with pytest.raises(ModelError, match="reserved"):
         terms(model)
+
+
+def test_duplicate_exclusion_names_raise():
+    model = _model()
+    with pytest.raises(ModelError, match="duplicate"):
+        partial_covariance(model, 0, 1, exclude=("f", "f"))

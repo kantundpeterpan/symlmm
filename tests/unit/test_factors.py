@@ -92,3 +92,20 @@ def test_random_effects_name_is_stored():
         name="custom",
     )
     assert term.name == "custom"
+
+
+def test_duplicate_factor_name_with_conflicting_index_raises():
+    first = Group("F")
+    second = Group("F", index=sp.Symbol("f2", integer=True))
+    with pytest.raises(ModelError, match="conflicting"):
+        _model([first, second], first)
+
+
+def test_self_nesting_raises():
+    with pytest.raises(ModelError, match="cycle"):
+        _model([], Nested("F", "F"))
+
+
+def test_self_nesting_with_explicit_spec_raises():
+    with pytest.raises(ModelError, match="cycle"):
+        _model([], Nested("F", Group("F")))
