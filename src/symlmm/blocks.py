@@ -7,7 +7,7 @@ from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
-from .errors import NotDefined
+from .errors import ModelError, NotDefined
 from .specs import Factor
 
 
@@ -90,6 +90,8 @@ class Block:
 
     def cross_covariance(self, other: Block) -> Any:
         """Return Cov(Y_block, Y_other)."""
+        if self.model is not other.model:
+            raise ModelError("cross covariance requires blocks from the same model")
         if self.model._dense:
             rows = self.rows()
             columns = other.rows()
