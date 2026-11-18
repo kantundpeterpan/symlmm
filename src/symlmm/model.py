@@ -17,7 +17,17 @@ import sympy as sp  # type: ignore[import-untyped]
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError, NotDefined
 from .factors import FactorResolver
-from .specs import Covariate, Crossed, Factor, FactorSpec, Fixed, Group, Nested, RandomEffects
+from .specs import (
+    Covariate,
+    Crossed,
+    Factor,
+    FactorSpec,
+    Fixed,
+    Group,
+    Nested,
+    Position,
+    RandomEffects,
+)
 from .symbols import observation_index
 
 if TYPE_CHECKING:
@@ -588,17 +598,26 @@ class LMM(IndexedModel):
         return self.block(factor1, level1).cross_covariance(self.block(factor2, level2))
 
     def panel(self, factor: Any = None, position: Any = None) -> Any:
-        """Return a panel view for a factor and position axis."""
+        """Return a panel view for a factor and optional position axis."""
         from .panel import PanelView
 
         selected_factor = factor if factor is not None else self.primary_group
         if selected_factor is None:
             raise NotDefined("panel view requires a factor")
+        selected_position: Any
         if position is None:
             if self.coordinate_name is None:
-                raise NotDefined("panel view requires a position axis")
-            position = self.coordinate_name
-        return PanelView(self, selected_factor, position)
+                selected_position = None
+            else:
+                selected_position = Position(
+                    self.coordinate_name,
+                    index=self.occasion_index,
+                )
+        elif isinstance(position, str) and position == self.coordinate_name:
+            selected_position = Position(position, index=self.occasion_index)
+        else:
+            selected_position = position
+        return PanelView(self, selected_factor, selected_position)
 
     def _deprecated(self, name: str) -> Any:
         """Return the default panel view and emit a deprecation warning."""
