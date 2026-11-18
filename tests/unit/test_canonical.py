@@ -3,12 +3,20 @@
 import pytest
 import sympy as sp
 
-from symlmm.canonical import (
-    group_coefficients,
-    group_mean,
-    group_random_design,
-    group_residual,
-    group_size_symbol,
+from symlmm.blocks import (
+    block_coefficients as group_coefficients,
+)
+from symlmm.blocks import (
+    block_mean_symbol as group_mean,
+)
+from symlmm.blocks import (
+    block_random_design as group_random_design,
+)
+from symlmm.blocks import (
+    block_residual as group_residual,
+)
+from symlmm.blocks import (
+    block_size_symbol as group_size_symbol,
 )
 from symlmm.covariances import AR1, IID, Scalar
 from symlmm.errors import NotDefined

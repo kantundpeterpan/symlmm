@@ -3,6 +3,16 @@
 from importlib.metadata import version
 
 from .blackboard import ModelSymbols
+from .blocks import (
+    Block,
+    block_coefficients,
+    block_cross_residual,
+    block_mean_symbol,
+    block_random_design,
+    block_residual,
+    block_size_symbol,
+    block_term_design,
+)
 from .blup import blup_covariance, blup_cross_covariance, blup_mean
 from .constraints import (
     Constraint,
@@ -27,6 +37,7 @@ from .covariances import (
     Toeplitz,
     Unstructured,
 )
+from .decomposition import Term
 from .errors import (
     CovarianceConstructionError,
     FormArityError,
@@ -53,8 +64,20 @@ from .forms import (
     sum_to_matrix,
 )
 from .model import LMM, IndexedModel
+from .panel import PanelView
 from .simplify import canonicalize
-from .specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects, RandomSlope
+from .specs import (
+    Covariate,
+    Crossed,
+    Factor,
+    FactorSpec,
+    Fixed,
+    Group,
+    Nested,
+    Position,
+    RandomEffects,
+    RandomSlope,
+)
 from .symbols import observation_index, parameter
 from .variogram import covariogram, variogram
 
@@ -64,6 +87,7 @@ __all__ = [
     "AR1",
     "IID",
     "LMM",
+    "Block",
     "BlockDiag",
     "CompoundSymmetry",
     "Constraint",
@@ -75,6 +99,8 @@ __all__ = [
     "DualForm",
     "EntryMap",
     "Exponential",
+    "Factor",
+    "FactorSpec",
     "Fixed",
     "Form",
     "FormArityError",
@@ -93,7 +119,9 @@ __all__ = [
     "NoConditionalModel",
     "NotDecomposable",
     "NotDefined",
+    "PanelView",
     "ParameterConstraintError",
+    "Position",
     "RandomCovariance",
     "RandomEffects",
     "RandomSlope",
@@ -101,12 +129,20 @@ __all__ = [
     "ResidualCovariance",
     "Scalar",
     "SymlmmError",
+    "Term",
     "Toeplitz",
     "UnresolvedSymbols",
     "Unstructured",
     "UnsupportedForm",
     "UnsupportedMoment",
     "__version__",
+    "block_coefficients",
+    "block_cross_residual",
+    "block_mean_symbol",
+    "block_random_design",
+    "block_residual",
+    "block_size_symbol",
+    "block_term_design",
     "blup_covariance",
     "blup_cross_covariance",
     "blup_mean",
