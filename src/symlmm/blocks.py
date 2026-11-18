@@ -62,6 +62,16 @@ def block_coefficients(factor: Factor, level: Any, q: Any) -> sp.MatrixSymbol:
     return sp.MatrixSymbol(f"b_{factor.label}:{level}", q, 1)
 
 
+def _resolve_term(model: Any, name: Any) -> Any:
+    """Return the term named `name`, or raise ModelError."""
+    from .decomposition import terms
+
+    for item in terms(model):
+        if item.name == name:
+            return item
+    raise ModelError(f"unknown term name: {name!r}")
+
+
 @dataclass(frozen=True)
 class Block:
     """The observation set for one factor level."""
@@ -106,12 +116,14 @@ class Block:
             columns = other.rows()
             matrix = self.model.matrix_covariance()
             return matrix[rows, :][:, columns]
-        q = self.model.dimensions()[1]
-        Z = block_random_design(self.factor, self.level, q)
-        Z_other = block_random_design(other.factor, other.level, q)
-        G = self.model.matrix_g()
-        R = block_cross_residual(self.factor, self.level, other.factor, other.level)
-        return Z * G * Z_other.T + R
+        from .decomposition import terms
+
+        total = block_cross_residual(self.factor, self.level, other.factor, other.level)
+        for term in terms(self.model):
+            Z = block_term_design(self.factor, self.level, term)
+            Z_other = block_term_design(other.factor, other.level, term)
+            total += Z * term.random.cov.dense() * Z_other.T
+        return total
 
     def design(self) -> Any:
         """Return the fixed design block."""
@@ -124,50 +136,49 @@ class Block:
         )
 
     def random_design(self, term: Any = None) -> Any:
-        """Return the full or term-specific random design block."""
+        """Return the full or term-specific random design block.
+
+        `term` is a term name string when given.
+        """
         if self.model._dense:
             matrix = self.model.matrix_z()
             if term is None:
                 return matrix[self.rows(), :]
-            from .decomposition import terms
-
-            resolved = next(item for item in terms(self.model) if item.name == term)
+            resolved = _resolve_term(self.model, term)
             start = self.model._random_term_offset(resolved.random)
             stop = start + resolved.random.dim
             return matrix[self.rows(), start:stop]
         if term is None:
             q = self.model.dimensions()[1]
             return block_random_design(self.factor, self.level, q)
-        from .decomposition import terms
-
-        resolved = next(item for item in terms(self.model) if item.name == term)
+        resolved = _resolve_term(self.model, term)
         return block_term_design(self.factor, self.level, resolved)
 
     def covariance_terms(self) -> dict[str, Any]:
         """Return per-term contributions to Cov(Y_block)."""
-        values: dict[str, Any] = {}
-        from .decomposition import terms
+        from .decomposition import RESIDUAL, terms
 
+        values: dict[str, Any] = {}
         for term in terms(self.model):
             Z = self.random_design(term=term.name)
             values[term.name] = Z * term.random.cov.dense() * Z.T
-        values["residual"] = self.residual()
+        values[RESIDUAL] = self.residual()
         return values
 
     def partial_covariance(self, other: Block, *, exclude: tuple[str, ...] = ()) -> Any:
         """Return Cov(Y_block, Y_other) with named term contributions removed."""
-        from .decomposition import terms, validate_exclusions
+        from .decomposition import RESIDUAL, terms, validate_exclusions
 
         resolved = terms(self.model)
-        validate_exclusions(resolved, exclude)
+        excluded = validate_exclusions(resolved, exclude)
         total = self.cross_covariance(other)
         for term in resolved:
-            if term.name not in exclude:
+            if term.name not in excluded:
                 continue
             Z = self.random_design(term=term.name)
             Z_other = other.random_design(term=term.name)
             total -= Z * term.random.cov.dense() * Z_other.T
-        if "residual" in exclude:
+        if RESIDUAL in excluded:
             if self.model._dense:
                 total -= self.model.matrix_r()[self.rows(), :][:, other.rows()]
             else:

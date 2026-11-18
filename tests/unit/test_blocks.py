@@ -9,8 +9,10 @@ from symlmm.blocks import (
     block_random_design,
     block_residual,
     block_size_symbol,
+    block_term_design,
 )
 from symlmm.covariances import IID, Scalar
+from symlmm.decomposition import terms
 from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
 from symlmm.specs import Fixed, Group, Nested, RandomEffects
@@ -110,7 +112,7 @@ def test_symbolic_random_effect_and_missing_term():
         Block(model, model.factor("G"), level).random_effect()
 
 
-def test_symbolic_cross_covariance_uses_cross_residual():
+def test_symbolic_cross_covariance_uses_term_designs():
     model = _hierarchical()
     left_factor = model.factor("H")
     right_factor = model.factor("F")
@@ -118,12 +120,13 @@ def test_symbolic_cross_covariance_uses_cross_residual():
     right_level = sp.Symbol("f", integer=True)
     left = Block(model, left_factor, left_level)
     right = Block(model, right_factor, right_level)
-    q = model.dimensions()[1]
-    expected = block_random_design(
-        left_factor, left_level, q
-    ) * model.matrix_g() * block_random_design(
-        right_factor, right_level, q
-    ).T + block_cross_residual(left_factor, left_level, right_factor, right_level)
+    expected = block_cross_residual(left_factor, left_level, right_factor, right_level)
+    for term in terms(model):
+        expected += (
+            block_term_design(left_factor, left_level, term)
+            * term.random.cov.dense()
+            * block_term_design(right_factor, right_level, term).T
+        )
     assert left.cross_covariance(right) == expected
 
 
@@ -170,9 +173,7 @@ def test_block_partial_covariance_excludes_everything():
     dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 1, 0, 1])
     block = Block(dense, dense.factor("H"), 0)
     exclude = tuple(block.covariance_terms())
-    assert block.partial_covariance(block, exclude=exclude) == sp.zeros(
-        block.size(), block.size()
-    )
+    assert block.partial_covariance(block, exclude=exclude) == sp.zeros(block.size(), block.size())
 
 
 def test_block_unknown_exclusion_raises():
@@ -181,3 +182,43 @@ def test_block_unknown_exclusion_raises():
     block = Block(dense, dense.factor("H"), 0)
     with pytest.raises(ModelError, match="unknown term"):
         block.partial_covariance(block, exclude=["missing"])
+
+
+def test_block_partial_covariance_distinct_blocks_excludes_everything():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 0, 0], G=[0, 0, 0, 0], H=[0, 0, 1, 1])
+    left = Block(dense, dense.factor("H"), 0)
+    right = Block(dense, dense.factor("H"), 1)
+    assert left.rows() != right.rows()
+    exclude = tuple(left.covariance_terms())
+    assert left.partial_covariance(right, exclude=exclude) == sp.zeros(2, 2)
+
+
+def test_symbolic_covariance_terms_sum_to_total():
+    model = _hierarchical()
+    level = sp.Symbol("h", integer=True)
+    block = Block(model, model.factor("H"), level)
+    values = block.covariance_terms()
+    zero = sp.ZeroMatrix(block.size(), block.size())
+    assert sum(values.values(), zero) == block.covariance()
+    assert list(values)[-1] == "residual"
+
+
+def test_symbolic_partial_covariance_excludes_everything():
+    model = _hierarchical()
+    level = sp.Symbol("h", integer=True)
+    block = Block(model, model.factor("H"), level)
+    exclude = tuple(block.covariance_terms())
+    assert block.partial_covariance(block, exclude=exclude) == sp.ZeroMatrix(
+        block.size(), block.size()
+    )
+
+
+def test_random_design_rejects_unknown_terms():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 1, 0, 1])
+    block = Block(dense, dense.factor("H"), 0)
+    with pytest.raises(ModelError, match="unknown term"):
+        block.random_design(term="missing")
+    with pytest.raises(ModelError, match="unknown term"):
+        block.random_design(term=terms(model)[0])
