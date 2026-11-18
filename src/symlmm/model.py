@@ -17,6 +17,7 @@ import sympy as sp  # type: ignore[import-untyped]
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError, NotDefined
 from .factors import FactorResolver
+from .panel import _position_sort_key
 from .specs import Covariate, Crossed, Factor, FactorSpec, Fixed, Group, Nested, RandomEffects
 from .symbols import observation_index
 
@@ -231,6 +232,34 @@ class IndexedModel:
                         previous = value
                     result[position] = code
         self._occasion_cache[spec.label] = result
+        return result
+
+    def _dense_position_codes_for(self, factor: Any, position: Any) -> list[int]:
+        """Return dense position codes for a factor and position definition."""
+        resolved = self.factor(factor)
+        raw = list(self._observation_column(position.column or position.name))
+        groups = self._dense_group_codes(resolved)
+        result = [0] * self.n
+        if position.column is not None:
+            per_group: dict[int, dict[Any, int]] = {}
+            for row, group_code in enumerate(groups):
+                mapping = per_group.setdefault(group_code, {})
+                value = raw[row]
+                if value not in mapping:
+                    mapping[value] = len(mapping)
+                result[row] = mapping[value]
+            return result
+        for group_code in sorted(set(groups)):
+            rows = [row for row, code in enumerate(groups) if code == group_code]
+            ordered = sorted(rows, key=lambda row: _position_sort_key(raw[row], row))
+            code = -1
+            previous: Any = object()
+            for row in ordered:
+                value = raw[row]
+                if value != previous:
+                    code += 1
+                    previous = value
+                result[row] = code
         return result
 
     def _nested_coordinate_value(self, i: Any, name: str, spec: Factor) -> Any:
