@@ -91,6 +91,41 @@ def test_panel_symbols_expose_canonical_indices_and_accessors():
     assert syms.b[g].shape == (q, 1)
 
 
+def test_panel_adapter_random_design_is_term_specific_with_multiple_factors():
+    b0 = sp.Symbol("b0")
+    tau2 = sp.Symbol("tau2", positive=True)
+    omega2 = sp.Symbol("omega2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group=Group("subject", index=sp.Integer(0)),
+                intercept=True,
+                cov=Scalar(tau2),
+            ),
+            RandomEffects(group=Group("item"), intercept=True, cov=Scalar(omega2)),
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+        n=4,
+    ).dense(subject=[0, 0, 1, 1], item=[0, 1, 0, 1], time=[0, 1, 0, 1])
+    panel = model.panel("subject", "time")
+    syms = panel.symbols()
+    g = 0
+    q = model.random[0].dim
+    block = model.block("subject", g)
+
+    assert model.dimensions()[1] > q
+    assert syms.Z(g).shape == (block.size(), q)
+    assert syms.Z(g) == block.random_design(term="subject")
+
+    b = syms.b[g]
+    conditional_mean = block.mean() + block.random_design(term="subject") * b
+    assert syms.E(syms.Y[g, :], given=b) == conditional_mean.T
+    assert syms.Var(syms.Y[g, :], given=b) == block.residual()
+
+
 def test_model_symbols_is_deprecated():
     model = _random_intercept_model()
     with pytest.warns(DeprecationWarning, match="symbols is deprecated"):

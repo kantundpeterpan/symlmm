@@ -1,4 +1,4 @@
-"""Dense canonical group and occasion moment consistency tests."""
+"""Dense block and panel moment consistency tests."""
 
 import sympy as sp
 
@@ -21,30 +21,47 @@ def _balanced_model() -> LMM:
     return model.dense(subject=[0, 0, 1, 1], time=[1, 0, 1, 0])
 
 
-def test_dense_group_moments_match_matrix_submatrices():
+def test_dense_block_moments_match_matrix_submatrices():
     model = _balanced_model()
     mean = model.matrix_mean()
     covariance = model.matrix_covariance()
     rows = [[1, 0], [3, 2]]
+    panel = model.panel("subject", "time")
 
     for group, indices in enumerate(rows):
-        assert model._group_rows(group) == indices
-        assert model.group_mean(group) == mean[indices, :]
-        assert model.group_covariance(group) == covariance[indices, :][:, indices]
+        assert panel.grid.rows_for_level(group) == indices
+        block = model.block("subject", group)
+        assert block.mean() == mean[block.rows(), :]
+        assert block.covariance() == covariance[block.rows(), :][:, block.rows()]
 
-    assert model.group_cross_covariance(0, 1) == covariance[rows[0], :][:, rows[1]]
-    assert model.group_cross_covariance(1, 0) == covariance[rows[1], :][:, rows[0]]
-    assert model.group_cross_covariance(0, 1) == sp.zeros(2, 2)
-    assert model.group_cross_covariance(0, 0) == model.group_covariance(0)
+    left = model.block("subject", 0)
+    right = model.block("subject", 1)
+    assert left.cross_covariance(right) == covariance[left.rows(), :][:, right.rows()]
+    assert right.cross_covariance(left) == covariance[right.rows(), :][:, left.rows()]
+    assert left.cross_covariance(right) == sp.zeros(2, 2)
+    assert left.cross_covariance(left) == left.covariance()
 
 
-def test_dense_occasion_moments_match_group_entries():
+def test_dense_position_moments_match_panel_entries():
     model = _balanced_model()
+    mean = model.matrix_mean()
+    covariance = model.matrix_covariance()
+    rows = [[1, 0], [3, 2]]
+    panel = model.panel("subject", "time")
     t, s = 0, 1
 
-    expected_mean = sp.Matrix([model.group_mean(group)[t, 0] for group in range(2)])
-    expected_covariance = sp.diag(*(model.group_covariance(group)[t, s] for group in range(2)))
+    for group, indices in enumerate(rows):
+        for position in range(2):
+            assert panel.entry_mean(group, position) == mean[indices[position], 0]
+            for other in range(2):
+                assert (
+                    panel.entry_covariance(group, position, other)
+                    == covariance[indices[position], indices[other]]
+                )
 
-    assert model.time_mean(t) == expected_mean
-    assert model.time_covariance(t, s) == expected_covariance
-    assert model.time_covariance(t, s)[0, 1] == 0
+    expected_mean = sp.Matrix([panel.entry_mean(group, t) for group in range(2)])
+    expected_covariance = sp.diag(*(panel.entry_covariance(group, t, s) for group in range(2)))
+
+    assert panel.position_mean(t) == expected_mean
+    assert panel.position_covariance(t, s) == expected_covariance
+    assert panel.position_covariance(t, s)[0, 1] == 0
