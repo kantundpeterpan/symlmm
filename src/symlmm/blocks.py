@@ -26,6 +26,15 @@ def block_random_design(factor: Factor, level: Any, q: Any) -> sp.MatrixSymbol:
     return sp.MatrixSymbol(f"Z_{factor.label}:{level}", block_size_symbol(factor, level), q)
 
 
+def block_term_design(factor: Factor, level: Any, term: Any) -> sp.MatrixSymbol:
+    """Return the random design matrix for one term and block."""
+    return sp.MatrixSymbol(
+        f"Z_{factor.label}:{level}:{term.name}",
+        block_size_symbol(factor, level),
+        term.random.dim,
+    )
+
+
 def block_residual(factor: Factor, level: Any) -> sp.MatrixSymbol:
     """Return the residual covariance matrix for a block."""
     size = block_size_symbol(factor, level)
@@ -114,12 +123,61 @@ class Block:
             len(self.model.fixed.coefficients()),
         )
 
-    def random_design(self) -> Any:
-        """Return the full random design block."""
+    def random_design(self, term: Any = None) -> Any:
+        """Return the full or term-specific random design block."""
         if self.model._dense:
-            return self.model.matrix_z()[self.rows(), :]
-        q = self.model.dimensions()[1]
-        return block_random_design(self.factor, self.level, q)
+            matrix = self.model.matrix_z()
+            if term is None:
+                return matrix[self.rows(), :]
+            from .decomposition import terms
+
+            resolved = next(item for item in terms(self.model) if item.name == term)
+            start = self.model._random_term_offset(resolved.random)
+            stop = start + resolved.random.dim
+            return matrix[self.rows(), start:stop]
+        if term is None:
+            q = self.model.dimensions()[1]
+            return block_random_design(self.factor, self.level, q)
+        from .decomposition import terms
+
+        resolved = next(item for item in terms(self.model) if item.name == term)
+        return block_term_design(self.factor, self.level, resolved)
+
+    def covariance_terms(self) -> dict[str, Any]:
+        """Return per-term contributions to Cov(Y_block)."""
+        values: dict[str, Any] = {}
+        from .decomposition import terms
+
+        for term in terms(self.model):
+            Z = self.random_design(term=term.name)
+            values[term.name] = Z * term.random.cov.dense() * Z.T
+        values["residual"] = self.residual()
+        return values
+
+    def partial_covariance(self, other: Block, *, exclude: tuple[str, ...] = ()) -> Any:
+        """Return Cov(Y_block, Y_other) with named term contributions removed."""
+        from .decomposition import terms, validate_exclusions
+
+        resolved = terms(self.model)
+        validate_exclusions(resolved, exclude)
+        total = self.cross_covariance(other)
+        for term in resolved:
+            if term.name not in exclude:
+                continue
+            Z = self.random_design(term=term.name)
+            Z_other = other.random_design(term=term.name)
+            total -= Z * term.random.cov.dense() * Z_other.T
+        if "residual" in exclude:
+            if self.model._dense:
+                total -= self.model.matrix_r()[self.rows(), :][:, other.rows()]
+            else:
+                total -= block_cross_residual(
+                    self.factor,
+                    self.level,
+                    other.factor,
+                    other.level,
+                )
+        return sp.simplify(total)
 
     def residual(self) -> Any:
         """Return the residual covariance block."""

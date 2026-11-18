@@ -142,3 +142,42 @@ def test_block_rows_require_dense_mode():
     block = Block(model, model.factor("H"), 0)
     with pytest.raises(NotDefined, match="dense"):
         block.rows()
+
+
+def test_block_covariance_terms_sum_to_total():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 1, 0, 1])
+    block = Block(dense, dense.factor("H"), 0)
+    terms = block.covariance_terms()
+    zero = sp.zeros(block.size(), block.size())
+    assert sum(terms.values(), zero) == block.covariance()
+    assert list(terms)[-1] == "residual"
+
+
+def test_block_partial_covariance_excludes_term():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 1, 0, 1])
+    block = Block(dense, dense.factor("H"), 0)
+    terms = block.covariance_terms()
+    excluded = next(iter(terms))
+    assert block.partial_covariance(block, exclude=[excluded]) == (
+        block.covariance() - terms[excluded]
+    )
+
+
+def test_block_partial_covariance_excludes_everything():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 1, 0, 1])
+    block = Block(dense, dense.factor("H"), 0)
+    exclude = tuple(block.covariance_terms())
+    assert block.partial_covariance(block, exclude=exclude) == sp.zeros(
+        block.size(), block.size()
+    )
+
+
+def test_block_unknown_exclusion_raises():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 1, 0, 1])
+    block = Block(dense, dense.factor("H"), 0)
+    with pytest.raises(ModelError, match="unknown term"):
+        block.partial_covariance(block, exclude=["missing"])
