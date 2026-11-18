@@ -40,13 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Before | Now |
 |---|---|
-| `from symlmm.canonical import group_size_symbol` | `from symlmm.blocks import block_size_symbol` |
+| `from symlmm.canonical import group_size_symbol` | `from symlmm.blocks import block_size_symbol`; call it as `block_size_symbol(factor, level)` |
 | `model.group_size(level)` | `model.block(factor, level).size()` |
 | `model.group_mean(level)` | `model.block(factor, level).mean()` |
 | `model.group_covariance(level)` | `model.block(factor, level).covariance()` |
 | `model.group_cross_covariance(g, h)` | `model.block(factor, g).cross_covariance(model.block(factor, h))` |
-| `model.time_mean(position)` | `model.panel(factor, position).position_mean(position)` |
-| `model.time_covariance(p, q)` | `model.panel(factor, position).position_covariance(p, q)` |
+| `model.time_mean(position)` | `model.panel(factor).position_mean(position)` |
+| `model.time_covariance(p, q)` | `model.panel(factor).position_covariance(p, q)` |
 | `model.symbols()` | `model.panel(factor, position).symbols()` |
 
 ## [0.5.0] - 2026-11-10

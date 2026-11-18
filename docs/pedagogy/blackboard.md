@@ -94,8 +94,9 @@ to `Covariate(name)`; examples pass the definition.
 - The factor defaults to the primary grouping factor: the first
   `RandomEffects` block's `Group`, otherwise the residual covariance's group
   definition, otherwise the first registered grouping definition.
-- The position defaults to the model's coordinate name. Pass a `Position`, a
-  column name, or `None` for a block-only view.
+- The position defaults to the model's coordinate name. Pass a `Position` or a
+  column name for an explicit axis. `None` only omits the axis when the model
+  has no coordinate; for block-only work use `model.block(factor, level)`.
 - Position codes are a 0-based rank in sorted position order within each
   block, not the raw coordinate value. A `Position` with `column=` supplies
   the codes by first appearance within each block instead.
@@ -103,7 +104,7 @@ to `Covariate(name)`; examples pass the definition.
 ```python
 panel = dense.panel(subject, visit)      # explicit factor and position
 panel = dense.panel(subject)             # position from coordinate="time"
-panel = dense.block(subject, 0)          # one block, no position axis
+block = dense.block(subject, 0)          # one block, no position axis
 ```
 
 Only the selected factor defines `Y_g` and its design/residual blocks. With
@@ -167,9 +168,10 @@ syms.G                      # G
 syms.beta                   # beta
 ```
 
-A symbolic-model panel can leave positions symbolic; entry and position
-moments require dense mode or concrete level counts. A bare integer index is
-ambiguous, so use `Y[0, :]` for a block row or `Y[:, 0]` for a position column.
+A symbolic-model panel can leave positions symbolic. Entry moments require
+dense mode; position-column moments additionally require a concrete level
+count. A bare integer index is ambiguous, so use `Y[0, :]` for a block row or
+`Y[:, 0]` for a position column.
 
 ## Block-level moments
 

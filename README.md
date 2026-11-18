@@ -12,8 +12,8 @@ The implemented package provides:
 - Panel views: `model.panel(factor, position)` returns a `PanelView` over a
   factor and an optional within-block `Position` axis, with entry and
   position-column moments.
-- Term-level decomposition: `model.terms()`, `covariance_terms`, and partial
-  covariance/correlation helpers.
+- Term-level decomposition: `model.terms()`, `model.covariance_terms(a, b)`,
+  and partial covariance/correlation helpers.
 - A blackboard facade: `panel.symbols()` returns `ModelSymbols` for
   textbook-style expressions such as `Y_g`, `b_g`, `E(...)`, and `Var(...)`.
 - Covariance structures, dense evaluation, BLUPs, variograms, and symbolic or
