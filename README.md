@@ -23,6 +23,9 @@ The former `group_*` and `time_*` model helpers remain deprecated adapters that
 forward to the factor-first API. See [CHANGELOG.md](CHANGELOG.md) for the
 migration notes.
 
+A worked tutorial with a hierarchical model, a longitudinal model, symbolic
+math, and plots is in [docs/tutorials/factor-first.md](docs/tutorials/factor-first.md).
+
 ## Example
 
 ```python
