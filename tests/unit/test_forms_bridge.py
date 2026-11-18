@@ -18,7 +18,7 @@ def test_random_intercept_sum_entry():
     i, j = model.indices()
 
     expected = tau2 * sp.KroneckerDelta(
-        model.group(i, "subject"), model.group(j, "subject")
+        model.level_code("subject", i), model.level_code("subject", j)
     ) + sigma2 * sp.KroneckerDelta(i, j)
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
 

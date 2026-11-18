@@ -22,8 +22,8 @@ def test_two_random_terms_sum():
     )
     i, j = model.indices()
     expected = (
-        tau_a * sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject"))
-        + tau_b * sp.KroneckerDelta(model.group(i, "item"), model.group(j, "item"))
+        tau_a * sp.KroneckerDelta(model.level_code("subject", i), model.level_code("subject", j))
+        + tau_b * sp.KroneckerDelta(model.level_code("item", i), model.level_code("item", j))
         + sigma2 * sp.KroneckerDelta(i, j)
     )
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0

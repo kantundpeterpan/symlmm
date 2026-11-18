@@ -6,7 +6,7 @@ import sympy as sp
 from symlmm.covariances import AR1, IID, Diagonal, Scalar
 from symlmm.errors import ModelError, UnsupportedForm
 from symlmm.model import LMM
-from symlmm.specs import Fixed, RandomEffects, RandomSlope
+from symlmm.specs import Fixed, Position, RandomEffects, RandomSlope
 
 
 def _intercept_model():
@@ -219,7 +219,7 @@ def test_dense_nested_uses_composite_level_codes():
     dense = model.dense(subject=[0, 0, 1, 1], visit=[0, 1, 0, 1])
     assert dense.dimensions()[1] == 4
     assert dense.levels("visit") == 4
-    assert dense.group(0, "visit") == dense.group(1, "visit") - 1
+    assert dense.level_code("visit", 0) == dense.level_code("visit", 1) - 1
     assert dense.matrix_z().shape == (4, 4)
     assert dense.matrix_g().shape == (4, 4)
 
@@ -338,7 +338,7 @@ def test_dense_occasion_codes_are_within_group():
         n=4,
     )
     dense = model.dense(subject=[0, 0, 1, 1], visit_time=[10, 11, 10, 11])
-    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert [dense.panel("subject", "visit_time").position_code(k) for k in range(4)] == [0, 1, 0, 1]
     assert dense.coordinate(0, "visit_time", within="subject") == 10
     assert dense.coordinate(1, "visit_time", within="subject") == 11
 
@@ -387,7 +387,10 @@ def test_dense_explicit_occasion_codes_are_ranked_within_group():
         occasion=["s1v1", "s1v2", "s2v1", "s2v2"],
         visit_time=[10, 11, 10, 11],
     )
-    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert [
+        dense.panel("subject", Position("occasion", column="occasion")).position_code(k)
+        for k in range(4)
+    ] == [0, 1, 0, 1]
 
 
 def test_dense_explicit_occasion_codes_follow_first_appearance_within_group():
@@ -407,7 +410,10 @@ def test_dense_explicit_occasion_codes_follow_first_appearance_within_group():
         occasion=["b", "a", "d", "c"],
         visit_time=[10, 11, 10, 11],
     )
-    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert [
+        dense.panel("subject", Position("occasion", column="occasion")).position_code(k)
+        for k in range(4)
+    ] == [0, 1, 0, 1]
 
 
 def test_dense_explicit_occasion_codes_support_mixed_types():
@@ -427,7 +433,10 @@ def test_dense_explicit_occasion_codes_support_mixed_types():
         occasion=[2, "a", "b", 1],
         visit_time=[10, 11, 10, 11],
     )
-    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert [
+        dense.panel("subject", Position("occasion", column="occasion")).position_code(k)
+        for k in range(4)
+    ] == [0, 1, 0, 1]
 
 
 def test_dense_derived_occasion_codes_support_mixed_coordinate_types():
@@ -442,7 +451,7 @@ def test_dense_derived_occasion_codes_support_mixed_coordinate_types():
         n=4,
     )
     dense = model.dense(subject=[0, 0, 1, 1], visit_time=[1, "a", 1, "a"])
-    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
+    assert [dense.panel("subject", "visit_time").position_code(k) for k in range(4)] == [0, 1, 0, 1]
 
 
 def test_dense_derived_occasion_codes_fall_back_for_unsympifiable_values():
@@ -464,7 +473,7 @@ def test_dense_derived_occasion_codes_fall_back_for_unsympifiable_values():
         n=2,
     )
     dense = model.dense(subject=[0, 0], visit_time=[Label("b"), Label("a")])
-    assert [dense.occasion(k, "subject") for k in range(2)] == [1, 0]
+    assert [dense.panel("subject", "visit_time").position_code(k) for k in range(2)] == [1, 0]
 
 
 def test_dense_per_factor_occasion_mapping():
@@ -487,8 +496,8 @@ def test_dense_per_factor_occasion_mapping():
         visit=[0, 1, 0, 1],
         occasion=[0, 0, 0, 0],
     )
-    assert [dense.occasion(k, "subject") for k in range(4)] == [0, 1, 0, 1]
-    assert [dense.occasion(k, "item") for k in range(4)] == [0, 0, 0, 0]
+    assert [dense.panel("subject", "visit").position_code(k) for k in range(4)] == [0, 1, 0, 1]
+    assert [dense.panel("item", "occasion").position_code(k) for k in range(4)] == [0, 0, 0, 0]
 
 
 def test_dense_random_slope_within_false_uses_global_coordinates():
@@ -542,12 +551,12 @@ def test_repeated_dense_accessors_are_consistent():
         n=4,
     )
     dense = model.dense(subject=[0, 0, 1, 1], visit_time=[10, 11, 10, 11])
-    occasions = [dense.occasion(k, "subject") for k in range(4)]
+    occasions = [dense.panel("subject", "visit_time").position_code(k) for k in range(4)]
     coordinates = [dense.coordinate(k, "visit_time", within="subject") for k in range(4)]
     assert occasions == [0, 1, 0, 1]
     assert coordinates == [10, 11, 10, 11]
     first_z = dense.matrix_z()
-    assert [dense.occasion(k, "subject") for k in range(4)] == occasions
+    assert [dense.panel("subject", "visit_time").position_code(k) for k in range(4)] == occasions
     assert [dense.coordinate(k, "visit_time", within="subject") for k in range(4)] == coordinates
     assert dense.matrix_z() == first_z
     assert dense.matrix_z().shape == (4, 4)

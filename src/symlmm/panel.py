@@ -210,7 +210,7 @@ class PanelAdapter:
 
     @property
     def group_index(self) -> Any:
-        """Return the panel factor's canonical index."""
+        """Return the panel factor's index."""
         return self.panel.factor.index
 
     @property

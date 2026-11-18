@@ -64,7 +64,7 @@ def test_conditional_mean_intercept_uses_group_level():
         atom.base.name: atom for atom in entry.atoms(sp.Indexed) if atom.base.name.startswith("b_")
     }
     assert set(indexed) == {"b_subject_0"}
-    assert indexed["b_subject_0"].indices[0] == model.group(i, "subject")
+    assert indexed["b_subject_0"].indices[0] == model.level_code("subject", i)
 
     level_0 = entry.subs({i: 0})
     level_1 = entry.subs({i: 1})
@@ -93,7 +93,7 @@ def test_conditional_mean_joint_block_components_do_not_collide():
     bases = {atom.base.name for atom in entry.atoms(sp.Indexed) if atom.base.name.startswith("b_")}
     assert bases == {"b_subject_0"}
 
-    level = model.group(i, "subject")
+    level = model.level_code("subject", i)
     assert entry.coeff(sp.IndexedBase("b_subject_0")[level, 0]) == 1
     assert entry.coeff(sp.IndexedBase("b_subject_0")[level, 1]) == model.coordinate(
         i, "time", within="subject"

@@ -112,9 +112,9 @@ def test_spatial_group_gate_and_nugget():
     i, j = model.indices()
     cov = Exponential(var=sigma2, range=phi, group="subject", nugget=omega2)
     entry = cov.entry(i, j, model)
-    assert sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject")) in entry.atoms(
-        sp.KroneckerDelta
-    )
+    assert sp.KroneckerDelta(
+        model.level_code("subject", i), model.level_code("subject", j)
+    ) in entry.atoms(sp.KroneckerDelta)
     assert sp.simplify(entry.subs({i: 0, j: 0})) == sigma2 + omega2
 
 

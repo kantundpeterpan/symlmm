@@ -61,7 +61,7 @@ def _residual_covariate(residual: ResidualCovariance) -> Covariate | None:
 
 
 def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
-    """Return a total ordering key for a derived-occasion coordinate value."""
+    """Return a total ordering key for a derived position coordinate value."""
     try:
         return (0, sp.default_sort_key(sp.sympify(value)), position)
     except (sp.SympifyError, TypeError):  # fmt: skip
@@ -144,7 +144,7 @@ class IndexedModel:
         return self.level_code(factor, i)
 
     def _occasion_code(self, i: Any, factor: str) -> Any:
-        """Return the within-group occasion index for row `i` and factor `factor`."""
+        """Return the within-group position index for row `i` and factor `factor`."""
         spec = self._group_spec(factor)
         if self._dense:
             return self._dense_occasion_codes(spec)[int(i)]
@@ -166,7 +166,7 @@ class IndexedModel:
         name: str | Covariate | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return a row coordinate, or ``X[group(i), occasion(i)]`` when within."""
+        """Return a row coordinate, or a two-level ``X[level, position]`` when within."""
         selected = self.coordinate_name if name is None else name
         if selected is None:
             raise ModelError("no coordinate name; pass coordinate=... or coordinate(i, name)")
@@ -202,7 +202,7 @@ class IndexedModel:
         return result
 
     def _occasion_column(self, factor: str) -> str | None:
-        """Return the explicit occasion column for `factor`, if configured."""
+        """Return the explicit position column for `factor`, if configured."""
         if isinstance(self.occasion_names, Mapping):
             return self.occasion_names.get(factor)
         return self.occasion_names
@@ -217,9 +217,9 @@ class IndexedModel:
         return symbol
 
     def _dense_occasion_codes(self, spec: Factor) -> list[int]:
-        """Return integer occasion codes within each group for `spec`.
+        """Return integer position codes within each group for `spec`.
 
-        Derived occasion codes are ordered symbolically when possible and fall
+        Derived position codes are ordered symbolically when possible and fall
         back to string ordering otherwise. Numeric ``1`` and ``1.0`` are
         distinct coordinate values for nesting validation.
         """
@@ -286,7 +286,7 @@ class IndexedModel:
         return result
 
     def _nested_coordinate_value(self, i: Any, name: str, spec: Factor) -> Any:
-        """Return a dense coordinate validated as constant within group/occasion."""
+        """Return a dense coordinate validated as constant within group/position."""
         key = (name, spec.label)
         mapping = self._coordinate_cache.get(key)
         if mapping is None:
@@ -414,7 +414,7 @@ class LMM(IndexedModel):
             None if occasion_definition is None else occasion_definition.index
         )
         if group_index is not None and occasion_index is not None and group_index == occasion_index:
-            raise ModelError("group and occasion indices must be distinct")
+            raise ModelError("group and position indices must be distinct")
 
         self.primary_group_definition = self._declaration(primary)
         self.occasion_definition = occasion_definition
@@ -435,7 +435,7 @@ class LMM(IndexedModel):
         coordinate_name: str | None,
         residual_covariate: Covariate | None,
     ) -> Covariate | None:
-        """Return the covariate definition for the model's canonical coordinate."""
+        """Return the covariate definition for the model's coordinate."""
         if coordinate_name is None:
             return None
         if residual_covariate is not None and residual_covariate.name == coordinate_name:
@@ -470,7 +470,7 @@ class LMM(IndexedModel):
 
     @property
     def primary_group(self) -> str | None:
-        """Return the primary grouping factor for canonical group indexing."""
+        """Return the primary grouping factor for group indexing."""
         definition = self.primary_group_definition
         if definition is None:
             return None
@@ -480,18 +480,18 @@ class LMM(IndexedModel):
         """Return the primary grouping-factor name or raise `NotDefined`."""
         factor = self.primary_group
         if self.group_index is None or factor is None:
-            raise NotDefined("canonical group indexing requires a grouping factor")
+            raise NotDefined("group indexing requires a grouping factor")
         return factor
 
     def _require_occasion_index(self) -> Covariate:
-        """Return the canonical occasion definition or raise `NotDefined`."""
+        """Return the position definition or raise `NotDefined`."""
         definition = self.occasion_definition
         if self.occasion_index is None or definition is None:
-            raise NotDefined("canonical occasion indexing requires a coordinate")
+            raise NotDefined("position indexing requires a coordinate")
         return definition
 
     def _group_rows(self, group: Any) -> list[int]:
-        """Return dense observation rows belonging to `group` in canonical order."""
+        """Return dense observation rows belonging to `group` in position order."""
         factor = self._require_group_index()
         if not self._dense:
             raise ModelError("group rows are available only in dense mode")
@@ -525,10 +525,10 @@ class LMM(IndexedModel):
         """Raise `NotDefined` when random terms use more than one factor."""
         groups = {term.group for term in self.random}
         if len(groups) > 1:
-            raise NotDefined("canonical group blocks require a single grouping factor")
+            raise NotDefined("group blocks require a single grouping factor")
 
     def _entry_row(self, group: Any, occasion: Any) -> Any:
-        """Return the group-block row for canonical `occasion`."""
+        """Return the group-block row for a position within `group`."""
         if not self._dense:
             return occasion
         factor = self._require_group_index()
@@ -536,7 +536,7 @@ class LMM(IndexedModel):
         for position, row in enumerate(self._group_rows(group)):
             if codes[row] == occasion:
                 return position
-        raise NotDefined(f"occasion {occasion!r} is not present in group {group!r}")
+        raise NotDefined(f"position {occasion!r} is not present in group {group!r}")
 
     def terms(self) -> Any:
         """Return named random-effect terms in model order."""

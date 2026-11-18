@@ -21,7 +21,7 @@ def test_random_intercept_closed_form():
     )
     i, j = model.indices()
     expected = tau2 * sp.KroneckerDelta(
-        model.group(i, "subject"), model.group(j, "subject")
+        model.level_code("subject", i), model.level_code("subject", j)
     ) + sigma2 * sp.KroneckerDelta(i, j)
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
 
@@ -41,7 +41,7 @@ def test_ar1_residual_closed_form():
     expected = (
         sigma2
         * rho ** sp.Abs(inside_i - inside_j)
-        * sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject"))
+        * sp.KroneckerDelta(model.level_code("subject", i), model.level_code("subject", j))
     )
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
 
@@ -58,9 +58,9 @@ def test_ar1_uses_two_level_within_coordinate():
     inside = model.coordinate(i, "visit_time", within="subject")
     entry = model.residual.entry(i, j, model)
     assert inside in entry.atoms(sp.Indexed)
-    assert sp.KroneckerDelta(model.group(i, "subject"), model.group(j, "subject")) in entry.atoms(
-        sp.KroneckerDelta
-    )
+    assert sp.KroneckerDelta(
+        model.level_code("subject", i), model.level_code("subject", j)
+    ) in entry.atoms(sp.KroneckerDelta)
 
 
 def test_ar1_within_resolves_group_delta():
@@ -77,8 +77,8 @@ def test_ar1_within_resolves_group_delta():
     inside = model.covariance_entry(i, j, within="subject")
     common = sp.Symbol("g_subject", integer=True)
     lag = sp.Abs(
-        sp.IndexedBase("visit_time")[common, model.occasion(i, "subject")]
-        - sp.IndexedBase("visit_time")[common, model.occasion(j, "subject")]
+        sp.IndexedBase("visit_time")[common, model._occasion_code(i, "subject")]
+        - sp.IndexedBase("visit_time")[common, model._occasion_code(j, "subject")]
     )
     assert sp.simplify(inside - sigma2 * rho**lag) == 0
     assert not inside.has(sp.KroneckerDelta)
@@ -138,7 +138,9 @@ def test_ar1_uses_named_coordinate_as_canonical_symbol():
 
     assert ar1.coordinate.name == "visit_time"
     entry = ar1.entry(i, j, model)
-    inside = sp.IndexedBase("visit_time")[model.group(i, "subject"), model.occasion(i, "subject")]
+    inside = sp.IndexedBase("visit_time")[
+        model.level_code("subject", i), model._occasion_code(i, "subject")
+    ]
     assert inside in entry.atoms(sp.Indexed)
 
 

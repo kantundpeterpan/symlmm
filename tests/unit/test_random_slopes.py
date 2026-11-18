@@ -33,7 +33,7 @@ def test_random_slope_closed_form():
         model.coordinate(j, "time", within="subject"),
     )
     expected = (s0**2 + s0 * s1 * rho_b * (ti + tj) + s1**2 * ti * tj) * sp.KroneckerDelta(
-        model.group(i, "subject"), model.group(j, "subject")
+        model.level_code("subject", i), model.level_code("subject", j)
     ) + sigma2 * sp.KroneckerDelta(i, j)
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
 
@@ -91,7 +91,7 @@ def test_random_intercept_and_slope_terms_sum():
         model.coordinate(j, "time", within="subject"),
     )
     expected = (tau2 + s0**2 + s0 * s1 * rho_b * (ti + tj) + s1**2 * ti * tj) * sp.KroneckerDelta(
-        model.group(i, "subject"), model.group(j, "subject")
+        model.level_code("subject", i), model.level_code("subject", j)
     ) + sigma2 * sp.KroneckerDelta(i, j)
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0
 

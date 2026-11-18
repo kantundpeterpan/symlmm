@@ -332,13 +332,13 @@ class AR1(ResidualCovariance):
         """Build an AR(1) residual covariance.
 
         The covariance is ``var * rho**Abs(t_i - t_j)`` within groups, where
-        ``t_i`` and ``t_j`` are the within-group occasion coordinates of rows
+        ``t_i`` and ``t_j`` are the within-group position coordinates of rows
         ``i`` and ``j``. This is the
         discrete-time AR(1) form when ``coordinate`` is numeric and unit-spaced;
         for irregular or non-unit spacing it is the continuous-time exponential
         covariance with ``rho`` per unit time. ``group`` names the grouping
         factor gating the covariance, and ``nugget`` is an optional non-negative
-        zero-lag measurement error. ``LMM`` rejects an explicit canonical
+        zero-lag measurement error. ``LMM`` rejects an explicit model
         coordinate only when it conflicts with a residual-declared coordinate;
         random-slope coordinates may differ.
         """

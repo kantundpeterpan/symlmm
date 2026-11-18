@@ -123,6 +123,6 @@ def test_joint_covariance_entry_uses_one_block():
     ti = model.coordinate(i, "time", within="subject")
     tj = model.coordinate(j, "time", within="subject")
     expected = (s0**2 + s0 * s1 * rho * (ti + tj) + s1**2 * ti * tj) * sp.KroneckerDelta(
-        model.group(i, "subject"), model.group(j, "subject")
+        model.level_code("subject", i), model.level_code("subject", j)
     ) + sigma2 * sp.KroneckerDelta(i, j)
     assert sp.simplify(model.covariance_entry(i, j) - expected) == 0

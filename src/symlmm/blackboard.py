@@ -106,7 +106,7 @@ def _scalarize(value: Any) -> Any:
 
 @dataclass(frozen=True)
 class _Atom:
-    """One canonical random atom."""
+    """One random atom."""
 
     kind: str
     group: Any = None
@@ -125,10 +125,10 @@ class _Term:
 
 
 class ResponseSymbols:
-    """Canonical response symbols ``Y[group]``, ``Y[:, occasion]``, and ``Y[g, t]``.
+    """Response symbols ``Y[group]``, ``Y[:, t]``, and ``Y[g, t]``.
 
     Dense models require concrete group labels for group-indexed responses;
-    symbolic canonical group indices raise ``NotDefined`` instead of producing
+    symbolic group indices raise ``NotDefined`` instead of producing
     empty blocks. Use ``Y[:, t]`` or a concrete row for dense panels.
     """
 
@@ -156,7 +156,7 @@ class ResponseSymbols:
         return int(group)
 
     def __getitem__(self, key: Any) -> Any:
-        """Dispatch on the model's canonical group and occasion index symbols."""
+        """Dispatch on the model's group and position index symbols."""
         if isinstance(key, tuple):
             if len(key) != 2:
                 raise ModelError("response indexing requires one or two indices")
@@ -188,7 +188,7 @@ class GroupEffectSymbols:
     """Group-level random-effect symbols ``b[group]``.
 
     When multiple random grouping factors exist, only the primary grouping
-    factor has a canonical group-level effect vector.
+    factor has a group-level effect vector.
     """
 
     def __init__(self, model: LMM) -> None:
@@ -201,7 +201,7 @@ class GroupEffectSymbols:
             self._by_group[model.group_index] = primary
 
     def _canonical_group(self, group: Any) -> Any:
-        """Normalize a group definition or name to its canonical index symbol."""
+        """Normalize a group definition or name to its index symbol."""
         index = getattr(group, "index", group)
         name = getattr(group, "name", group)
         if self.model.group_index is not None and (
@@ -211,7 +211,7 @@ class GroupEffectSymbols:
         return index
 
     def require_moment_group(self, group: Any) -> Any:
-        """Return the canonical group index when it is valid for effect moments."""
+        """Return the group index when it is valid for effect moments."""
         canonical = self._canonical_group(group)
         groups = {term.group for term in self.model.random}
         if len(groups) <= 1:
@@ -223,7 +223,7 @@ class GroupEffectSymbols:
         )
 
     def __getitem__(self, group: Any) -> Any:
-        """Return ``b_group`` for the primary canonical group index."""
+        """Return ``b_group`` for the primary group index."""
         canonical = self.require_moment_group(group)
         existing = self._by_group.get(group)
         if existing is not None:
@@ -258,15 +258,15 @@ class ModelSymbols:
     beta: sp.Matrix
 
     def E(self, expr: Any, *, given: Any = None) -> Any:
-        """Return the expectation of a linear expression in canonical atoms."""
+        """Return the expectation of a linear expression in random atoms."""
         return _expectation(self, expr, given=given)
 
     def Var(self, expr: Any, *, given: Any = None) -> Any:
-        """Return the variance of a linear expression in canonical atoms."""
+        """Return the variance of a linear expression in random atoms."""
         return _covariance(self, expr, expr, given=given)
 
     def Cov(self, expr1: Any, expr2: Any, *, given: Any = None) -> Any:
-        """Return the covariance of two linear expressions in canonical atoms."""
+        """Return the covariance of two linear expressions in random atoms."""
         return _covariance(self, expr1, expr2, given=given)
 
     def total_variance(self, expr: Any, *, given: Any = None) -> Any:
@@ -312,7 +312,7 @@ def symbols(model: Any) -> ModelSymbols:
 
 
 def _response_matrix(symbols: ModelSymbols) -> Any | None:
-    """Return the canonical response matrix, or None when it is undefined."""
+    """Return the response matrix, or None when it is undefined."""
     try:
         return symbols.model.response_matrix()
     except NotDefined:
@@ -325,7 +325,7 @@ def _is_effect_base(expression: Any) -> bool:
 
 
 def _match_atom(symbols: ModelSymbols, expr: Any) -> _Atom | None:
-    """Return the canonical random atom represented by `expr`, if any."""
+    """Return the random atom represented by `expr`, if any."""
     Y = _response_matrix(symbols)
     if isinstance(expr, MatrixElement):
         base = expr.args[0]
@@ -366,7 +366,7 @@ def _match_atom(symbols: ModelSymbols, expr: Any) -> _Atom | None:
 
 
 def _contains_random(symbols: ModelSymbols, expr: Any) -> bool:
-    """Return whether `expr` contains a canonical random atom."""
+    """Return whether `expr` contains a random atom."""
     return any(_match_atom(symbols, node) is not None for node in sp.preorder_traversal(expr))
 
 
@@ -470,7 +470,7 @@ def _conditional_mean(symbols: ModelSymbols, group: Any) -> Any:
 
 
 def _atom_expectation(symbols: ModelSymbols, atom: _Atom, given: Any | None) -> Any:
-    """Return the expectation of one canonical atom."""
+    """Return the expectation of one random atom."""
     model = symbols.model
     if atom.kind == "group_row":
         if given is not None and given == atom.group:
@@ -539,7 +539,7 @@ def _entry_covariance(
     occasion2: Any,
     given: Any | None,
 ) -> Any:
-    """Return the covariance between two canonical response entries."""
+    """Return the covariance between two response entries."""
     model = symbols.model
     if group1 == group2:
         if given is not None and given == group1:
@@ -555,7 +555,7 @@ def _entry_covariance(
 
 
 def _atom_covariance(symbols: ModelSymbols, atom1: _Atom, atom2: _Atom, given: Any | None) -> Any:
-    """Return the raw covariance block between two canonical atoms."""
+    """Return the raw covariance block between two random atoms."""
     model = symbols.model
     q = _effect_dim(symbols)
     if atom1.kind == "response_matrix" or atom2.kind == "response_matrix":
