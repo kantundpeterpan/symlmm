@@ -159,3 +159,86 @@ class PanelView:
             raise NotDefined("position covariance requires a concrete level count")
         self.model._require_single_grouping_factor()
         return sp.diag(*[self.entry_covariance(level, p1, p2) for level in range(count)])
+
+    def symbols(self) -> Any:
+        """Return panel blackboard symbols."""
+        return PanelAdapter(self).symbols()
+
+
+class PanelAdapter:
+    """Expose the legacy panel model surface used by blackboard.py."""
+
+    def __init__(self, panel: PanelView) -> None:
+        self.panel = panel
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.panel.model, name)
+
+    @property
+    def group_index(self) -> Any:
+        return self.panel.factor.index
+
+    @property
+    def occasion_index(self) -> Any:
+        return self.panel.position.index
+
+    @property
+    def primary_group(self) -> str:
+        return cast(str, self.panel.factor.name)
+
+    def response_matrix(self) -> Any:
+        return self.panel.response_matrix()
+
+    def response(self, level: Any, position: Any = None) -> Any:
+        if position is None:
+            return self.panel.response(level)
+        return self.panel.response_matrix()[level, position]
+
+    def time_response(self, position: Any) -> Any:
+        return self.panel.response_column(position)
+
+    def time_mean(self, position: Any) -> Any:
+        return self.panel.position_mean(position)
+
+    def time_covariance(self, p1: Any, p2: Any) -> Any:
+        return self.panel.position_covariance(p1, p2)
+
+    def entry_mean(self, level: Any, position: Any) -> Any:
+        return self.panel.entry_mean(level, position)
+
+    def entry_covariance(self, level: Any, p1: Any, p2: Any) -> Any:
+        return self.panel.entry_covariance(level, p1, p2)
+
+    def entry_cross_covariance(self, level1: Any, p1: Any, level2: Any, p2: Any) -> Any:
+        return self.panel.entry_cross_covariance(level1, p1, level2, p2)
+
+    def _entry_row(self, level: Any, position: Any) -> int:
+        return self.panel.grid.row(level, position)
+
+    def group_mean(self, level: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, level).mean()
+
+    def group_covariance(self, level: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, level).covariance()
+
+    def group_cross_covariance(self, left: Any, right: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, left).cross_covariance(
+            self.panel.model.block(self.panel.factor, right)
+        )
+
+    def fixed_design(self, level: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, level).design()
+
+    def random_design(self, level: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, level).random_design()
+
+    def residual_covariance(self, level: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, level).residual()
+
+    def random_effect(self, level: Any) -> Any:
+        return self.panel.model.block(self.panel.factor, level).random_effect()
+
+    def symbols(self) -> Any:
+        from .blackboard import symbols
+
+        return symbols(self)

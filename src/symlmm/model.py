@@ -497,123 +497,11 @@ class LMM(IndexedModel):
             offset += len(labels) * candidate.dim
         return offset
 
-    def group_count(self) -> Any:
-        """Return the number of groups (symbolic or dense)."""
-        factor = self._require_group_index()
-        if self._dense:
-            return len(set(self._dense_group_codes(self._group_spec(factor))))
-        return sp.Symbol("m", positive=True, integer=True)
-
-    def occasion_count(self) -> Any:
-        """Return the number of occasions for a balanced panel."""
-        definition = self._require_occasion_index()
-        factor = self._require_group_index()
-        if not self._dense:
-            return sp.Symbol("T", positive=True, integer=True)
-        column = self._observation_column(definition.name)
-        codes = self._dense_group_codes(self._group_spec(factor))
-        per_group: dict[int, list[Any]] = {}
-        for position, code in enumerate(codes):
-            per_group.setdefault(code, []).append(column[position])
-        occasion_sets: list[set[Any]] = []
-        for values in per_group.values():
-            distinct = set(values)
-            if len(distinct) != len(values):
-                raise NotDefined("occasion vectors require a balanced panel")
-            occasion_sets.append(distinct)
-        if not occasion_sets:
-            return 0
-        if any(values != occasion_sets[0] for values in occasion_sets[1:]):
-            raise NotDefined("occasion vectors require a balanced panel")
-        return len(occasion_sets[0])
-
-    def group_size(self, group: Any) -> Any:
-        """Return the number of observations in `group`."""
-        self._require_group_index()
-        if self._dense:
-            return len(self._group_rows(group))
-        from .canonical import group_size_symbol
-
-        return group_size_symbol(group)
-
-    def response(self, group: Any, occasion: Any = None) -> Any:
-        """Return Y_group as a row, or Y_group,occasion as a scalar."""
-        self._require_group_index()
-        matrix = self.response_matrix()
-        if occasion is None:
-            return matrix[group, :]
-        return matrix[group, occasion]
-
-    def response_matrix(self) -> Any:
-        """Return the balanced-panel response matrix Y (groups x occasions)."""
-        self._require_group_index()
-        self._require_occasion_index()
-        return sp.MatrixSymbol("Y", self.group_count(), self.occasion_count())
-
-    def time_response(self, occasion: Any) -> Any:
-        """Return the occasion column vector Y[:, occasion]."""
-        return self.response_matrix()[:, occasion]
-
-    def fixed_design(self, group: Any) -> Any:
-        """Return X_group."""
-        self._require_group_index()
-        from .canonical import group_mean
-
-        if self._dense:
-            rows = self._group_rows(group)
-            return self.matrix_x()[rows, :]
-        return group_mean(group, self.group_size(group), len(self.fixed.coefficients()))
-
-    def random_design(self, group: Any) -> Any:
-        """Return Z_group for the primary grouping factor."""
-        factor = self._require_group_index()
-        from .canonical import group_random_design
-
-        term = self._primary_random_term()
-        q = 0 if term is None else term.dim
-        if self._dense:
-            rows = self._group_rows(group)
-            if term is None:
-                return sp.zeros(len(rows), 0)
-            levels = sorted(set(self._dense_group_codes(self._group_spec(factor))))
-            if group not in levels:
-                return sp.zeros(len(rows), q)
-            start = self._random_term_offset(term) + levels.index(group) * q
-            return self.matrix_z()[rows, start : start + q]
-        return group_random_design(group, self.group_size(group), q)
-
-    def residual_covariance(self, group: Any) -> Any:
-        """Return R_group."""
-        self._require_group_index()
-        from .canonical import group_residual
-
-        if self._dense:
-            rows = self._group_rows(group)
-            return self.matrix_r()[rows, :][:, rows]
-        return group_residual(group, self.group_size(group))
-
-    def random_effect(self, group: Any) -> Any:
-        """Return b_group for the primary grouping factor."""
-        self._require_group_index()
-        from .canonical import group_coefficients
-
-        term = self._primary_random_term()
-        q = 0 if term is None else term.dim
-        return group_coefficients(group, q)
-
     def _require_single_grouping_factor(self) -> None:
         """Raise `NotDefined` when random terms use more than one factor."""
         groups = {term.group for term in self.random}
         if len(groups) > 1:
             raise NotDefined("canonical group blocks require a single grouping factor")
-
-    def _occasion_moment_group_count(self) -> int:
-        """Return a concrete group count after validating the balanced panel."""
-        count = self.group_count()
-        if not isinstance(count, int):
-            raise NotDefined("occasion-column moments require a concrete group count")
-        self.occasion_count()
-        return count
 
     def _entry_row(self, group: Any, occasion: Any) -> Any:
         """Return the group-block row for canonical `occasion`."""
@@ -626,62 +514,196 @@ class LMM(IndexedModel):
                 return position
         raise NotDefined(f"occasion {occasion!r} is not present in group {group!r}")
 
+    def terms(self) -> Any:
+        """Return named random-effect terms in model order."""
+        from .decomposition import terms
+
+        return terms(self)
+
+    def covariance_terms(self, a: Any, b: Any) -> Any:
+        """Return per-term contributions to Cov(Y_a, Y_b)."""
+        from .blocks import Block
+        from .decomposition import covariance_terms
+
+        if isinstance(a, Block) and isinstance(b, Block):
+            return a.covariance_terms()
+        if isinstance(a, Block) or isinstance(b, Block):
+            raise ModelError("covariance_terms requires two rows or two blocks")
+        return covariance_terms(self, a, b)
+
+    def partial_covariance(
+        self,
+        a: Any,
+        b: Any,
+        *,
+        exclude: tuple[str, ...] = (),
+    ) -> Any:
+        """Return covariance with named term contributions removed."""
+        from .blocks import Block
+        from .decomposition import partial_covariance
+
+        if isinstance(a, Block) and isinstance(b, Block):
+            return a.partial_covariance(b, exclude=exclude)
+        if isinstance(a, Block) or isinstance(b, Block):
+            raise ModelError("partial_covariance requires two rows or two blocks")
+        return partial_covariance(self, a, b, exclude=exclude)
+
+    def partial_correlation(
+        self,
+        a: Any,
+        b: Any,
+        *,
+        exclude: tuple[str, ...] = (),
+    ) -> Any:
+        """Return partial correlation for scalar entries."""
+        from .blocks import Block
+        from .decomposition import partial_correlation
+
+        if isinstance(a, Block) or isinstance(b, Block):
+            raise ModelError("partial_correlation is defined for scalar entries only")
+        return partial_correlation(self, a, b, exclude=exclude)
+
+    def block(self, factor: Any, level: Any) -> Any:
+        """Return the observation block for a factor level."""
+        from .blocks import Block
+
+        return Block(self, self.factor(factor), level)
+
+    def block_mean(self, factor: Any, level: Any) -> Any:
+        """Return E[Y_block]."""
+        return self.block(factor, level).mean()
+
+    def block_covariance(self, factor: Any, level: Any) -> Any:
+        """Return Cov(Y_block)."""
+        return self.block(factor, level).covariance()
+
+    def block_cross_covariance(
+        self,
+        factor1: Any,
+        level1: Any,
+        factor2: Any,
+        level2: Any,
+    ) -> Any:
+        """Return Cov(Y_block1, Y_block2)."""
+        return self.block(factor1, level1).cross_covariance(self.block(factor2, level2))
+
+    def panel(self, factor: Any = None, position: Any = None) -> Any:
+        """Return a panel view for a factor and position axis."""
+        from .panel import PanelView
+
+        selected_factor = factor if factor is not None else self.primary_group
+        if selected_factor is None:
+            raise NotDefined("panel view requires a factor")
+        if position is None:
+            if self.coordinate_name is None:
+                raise NotDefined("panel view requires a position axis")
+            position = self.coordinate_name
+        return PanelView(self, selected_factor, position)
+
+    def _deprecated(self, name: str) -> Any:
+        """Return the default panel view and emit a deprecation warning."""
+        import warnings
+
+        warnings.warn(
+            f"{name} is deprecated; use panel(...)",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return self.panel()
+
+    def response_matrix(self) -> Any:
+        """Deprecated: use panel(...).response_matrix()."""
+        return self._deprecated("response_matrix").response_matrix()
+
+    def response(self, group: Any, occasion: Any = None) -> Any:
+        """Deprecated: use panel(...).response(...)."""
+        panel = self._deprecated("response")
+        if occasion is None:
+            return panel.response(group)
+        return panel.response_matrix()[group, occasion]
+
+    def group_count(self) -> Any:
+        """Deprecated: use panel(...).level_count()."""
+        return self._deprecated("group_count").level_count()
+
+    def occasion_count(self) -> Any:
+        """Deprecated: use panel(...).position_count()."""
+        return self._deprecated("occasion_count").position_count()
+
+    def group_size(self, group: Any) -> Any:
+        """Deprecated: use block(...).size()."""
+        panel = self._deprecated("group_size")
+        return panel.model.block(panel.factor, group).size()
+
     def group_mean(self, group: Any) -> Any:
-        """Return E[Y_group]."""
-        coefficients = self.fixed.coefficients()
-        beta = sp.Matrix(len(coefficients), 1, coefficients)
-        return self.fixed_design(group) * beta
+        """Deprecated: use block(...).mean()."""
+        panel = self._deprecated("group_mean")
+        return panel.model.block(panel.factor, group).mean()
 
     def group_covariance(self, group: Any) -> Any:
-        """Return Cov(Y_group); requires a single grouping factor."""
-        self._require_single_grouping_factor()
-        term = self._primary_random_term()
-        residual = self.residual_covariance(group)
-        if term is None:
-            return residual
-        Z = self.random_design(group)
-        G = term.cov.dense()
-        return Z * G * Z.T + residual
+        """Deprecated: use block(...).covariance()."""
+        panel = self._deprecated("group_covariance")
+        return panel.model.block(panel.factor, group).covariance()
 
     def group_cross_covariance(self, group: Any, other: Any) -> Any:
-        """Return Cov(Y_group, Y_other); zero for a single grouping factor."""
-        self._require_single_grouping_factor()
-        if group == other:
-            return self.group_covariance(group)
-        rows = self.group_size(group)
-        columns = self.group_size(other)
-        if isinstance(rows, int) and isinstance(columns, int):
-            return sp.zeros(rows, columns)
-        return sp.ZeroMatrix(rows, columns)
+        """Deprecated: use block(...).cross_covariance(...)."""
+        panel = self._deprecated("group_cross_covariance")
+        return panel.model.block(panel.factor, group).cross_covariance(
+            panel.model.block(panel.factor, other)
+        )
 
     def entry_mean(self, group: Any, occasion: Any) -> Any:
-        """Return E[Y_group,occasion]."""
-        return self.group_mean(group)[self._entry_row(group, occasion), 0]
+        """Deprecated: use panel(...).entry_mean(...)."""
+        return self._deprecated("entry_mean").entry_mean(group, occasion)
 
     def entry_covariance(self, group: Any, t1: Any, t2: Any) -> Any:
-        """Return Cov(Y_group,t1, Y_group,t2)."""
-        row1 = self._entry_row(group, t1)
-        row2 = self._entry_row(group, t2)
-        return self.group_covariance(group)[row1, row2]
+        """Deprecated: use panel(...).entry_covariance(...)."""
+        return self._deprecated("entry_covariance").entry_covariance(group, t1, t2)
 
     def entry_cross_covariance(self, group: Any, t1: Any, other: Any, t2: Any) -> Any:
-        """Return Cov(Y_group,t1, Y_other,t2)."""
-        row1 = self._entry_row(group, t1)
-        row2 = self._entry_row(other, t2)
-        return self.group_cross_covariance(group, other)[row1, row2]
+        """Deprecated: use panel(...).entry_cross_covariance(...)."""
+        return self._deprecated("entry_cross_covariance").entry_cross_covariance(
+            group, t1, other, t2
+        )
 
-    def time_mean(self, occasion: Any) -> Any:
-        """Return E[Y_{.occasion}] for a concrete balanced panel."""
-        count = self._occasion_moment_group_count()
-        self._require_single_grouping_factor()
-        entries = [self.entry_mean(group, occasion) for group in range(count)]
-        return sp.Matrix(count, 1, entries)
+    def time_response(self, position: Any) -> Any:
+        """Deprecated: use panel(...).response_column(...)."""
+        return self._deprecated("time_response").response_column(position)
 
-    def time_covariance(self, t1: Any, t2: Any) -> Any:
-        """Return Cov(Y_{.t1}, Y_{.t2}) as a diagonal group matrix."""
-        count = self._occasion_moment_group_count()
-        self._require_single_grouping_factor()
-        return sp.diag(*(self.entry_covariance(group, t1, t2) for group in range(count)))
+    def time_mean(self, position: Any) -> Any:
+        """Deprecated: use panel(...).position_mean(...)."""
+        return self._deprecated("time_mean").position_mean(position)
+
+    def time_covariance(self, p1: Any, p2: Any) -> Any:
+        """Deprecated: use panel(...).position_covariance(...)."""
+        return self._deprecated("time_covariance").position_covariance(p1, p2)
+
+    def fixed_design(self, group: Any) -> Any:
+        """Deprecated: use block(...).design()."""
+        panel = self._deprecated("fixed_design")
+        return panel.model.block(panel.factor, group).design()
+
+    def random_design(self, group: Any) -> Any:
+        """Deprecated: use block(...).random_design()."""
+        panel = self._deprecated("random_design")
+        return panel.model.block(panel.factor, group).random_design()
+
+    def residual_covariance(self, group: Any) -> Any:
+        """Deprecated: use block(...).residual()."""
+        panel = self._deprecated("residual_covariance")
+        return panel.model.block(panel.factor, group).residual()
+
+    def random_effect(self, group: Any) -> Any:
+        """Deprecated: use block(...).random_effect()."""
+        panel = self._deprecated("random_effect")
+        return panel.model.block(panel.factor, group).random_effect()
+
+    def symbols(self) -> Any:
+        """Deprecated: use panel(...).symbols()."""
+        import warnings
+
+        warnings.warn("symbols is deprecated; use panel(...)", DeprecationWarning, stacklevel=2)
+        return self.panel().symbols()
 
     def dense(
         self,

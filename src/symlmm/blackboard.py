@@ -1,8 +1,5 @@
 """Blackboard-style symbolic moments on canonical group/occasion indexing.
 
-Importing this module registers :meth:`LMM.symbols` so the facade can be used
-without editing the controller-owned model module.
-
 The facade delegates moment definitions to the canonical model layer, including
 the private ``_entry_row`` and ``_primary_random_term`` helpers, so covariance
 math stays in one place.
@@ -290,7 +287,7 @@ class ModelSymbols:
         return self.Cov(conditional_mean1, conditional_mean2) + self.E(conditional_covariance)
 
 
-def symbols(model: LMM) -> ModelSymbols:
+def symbols(model: Any) -> ModelSymbols:
     """Return blackboard symbols for `model`."""
     coefficients = model.fixed.coefficients()
     beta = (
@@ -312,16 +309,6 @@ def symbols(model: LMM) -> ModelSymbols:
         G=G,
         beta=beta,
     )
-
-
-def _symbols_method(self: LMM) -> ModelSymbols:
-    """Return blackboard symbols for this model."""
-    return symbols(self)
-
-
-if not hasattr(LMM, "symbols"):
-    # ``model.py`` is controller-owned; register the facade lazily from here.
-    LMM.symbols = _symbols_method  # type: ignore[attr-defined]
 
 
 def _response_matrix(symbols: ModelSymbols) -> Any | None:
