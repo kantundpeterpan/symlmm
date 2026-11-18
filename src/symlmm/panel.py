@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import sympy as sp  # type: ignore[import-untyped]
@@ -12,14 +12,6 @@ from .errors import NotDefined
 from .specs import Factor, Position
 
 
-def _position_sort_key(value: Any, position: int) -> tuple[Any, ...]:
-    """Return a total ordering key for a position value."""
-    try:
-        return (0, sp.default_sort_key(sp.sympify(value)), position)
-    except (sp.SympifyError, TypeError):  # fmt: skip
-        return (1, str(value), position)
-
-
 @dataclass(frozen=True)
 class PanelGrid:
     """Resolved level and position codes for a panel."""
@@ -27,6 +19,7 @@ class PanelGrid:
     model: Any
     factor: Factor
     position: Position
+    _position_codes: list[int] | None = field(default=None, init=False, repr=False, compare=False)
 
     def level_codes(self) -> list[int]:
         """Return factor level codes for every observation."""
@@ -38,7 +31,14 @@ class PanelGrid:
         """Return position codes for every observation."""
         if not self.model._dense:
             raise NotDefined("panel grids require dense mode")
-        return cast(list[int], self.model._dense_position_codes_for(self.factor, self.position))
+        cached = self._position_codes
+        if cached is None:
+            cached = cast(
+                list[int],
+                self.model._dense_position_codes_for(self.factor, self.position),
+            )
+            object.__setattr__(self, "_position_codes", cached)
+        return cached
 
     def levels(self) -> list[int]:
         """Return sorted level codes."""
@@ -122,7 +122,9 @@ class PanelView:
         """Return the position code for observation row `i`."""
         if self.model._dense:
             return self.grid.position_codes()[int(i)]
-        return sp.IndexedBase(f"k_{self.factor.label.replace(':', '_')}", shape=(self.model.n,))[i]
+        index = self.position.index
+        label = index.name if index is not None else self.position.name
+        return sp.IndexedBase(f"k_{label}", shape=(self.model.n,))[i]
 
     def entry_mean(self, level: Any, position: Any) -> Any:
         """Return E[Y_level,position]."""
@@ -155,4 +157,5 @@ class PanelView:
         count = self.level_count()
         if not isinstance(count, int):
             raise NotDefined("position covariance requires a concrete level count")
+        self.model._require_single_grouping_factor()
         return sp.diag(*[self.entry_covariance(level, p1, p2) for level in range(count)])

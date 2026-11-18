@@ -17,7 +17,6 @@ import sympy as sp  # type: ignore[import-untyped]
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError, NotDefined
 from .factors import FactorResolver
-from .panel import _position_sort_key
 from .specs import Covariate, Crossed, Factor, FactorSpec, Fixed, Group, Nested, RandomEffects
 from .symbols import observation_index
 
@@ -251,7 +250,7 @@ class IndexedModel:
             return result
         for group_code in sorted(set(groups)):
             rows = [row for row, code in enumerate(groups) if code == group_code]
-            ordered = sorted(rows, key=lambda row: _position_sort_key(raw[row], row))
+            ordered = sorted(rows, key=lambda row: _occasion_sort_key(raw[row], row))
             code = -1
             previous: Any = object()
             for row in ordered:
