@@ -288,8 +288,15 @@ class PanelAdapter:
         return self.panel.model.block(self.panel.factor, level).design()
 
     def random_design(self, level: Any) -> Any:
-        """Return the random-effect design of a level block."""
-        return self.panel.model.block(self.panel.factor, level).random_design()
+        """Return the panel factor's random-effect design for a level block."""
+        block = self.panel.model.block(self.panel.factor, level)
+        term = next(
+            (item for item in self.panel.model.terms() if item.factor == self.panel.factor),
+            None,
+        )
+        if term is None:
+            return block.random_design()
+        return block.random_design(term=term.name)
 
     def residual_covariance(self, level: Any) -> Any:
         """Return the residual covariance of a level block."""

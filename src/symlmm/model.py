@@ -818,7 +818,10 @@ class LMM(IndexedModel):
             X = sp.MatrixSymbol("X", n, p)
             beta = sp.MatrixSymbol("beta", p, 1)
             return X * beta
-        return self.matrix_x() * sp.Matrix(self.fixed.coefficients())
+        coefficients = sp.Matrix(self.fixed.coefficients())
+        if coefficients.cols == 0:
+            coefficients = sp.zeros(0, 1)
+        return self.matrix_x() * coefficients
 
     def matrix_covariance(self) -> Any:
         """Return the matrix form of V = Z G Z' + R."""

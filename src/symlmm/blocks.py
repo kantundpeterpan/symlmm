@@ -97,11 +97,17 @@ class Block:
         """Return E[Y_block]."""
         if self.model._dense:
             return self.model.matrix_mean()[self.rows(), :]
-        return block_mean_symbol(
-            self.factor,
-            self.level,
-            len(self.model.fixed.coefficients()),
-        ) * sp.Matrix(self.model.fixed.coefficients())
+        coefficients = sp.Matrix(self.model.fixed.coefficients())
+        if coefficients.cols == 0:
+            coefficients = sp.zeros(0, 1)
+        return (
+            block_mean_symbol(
+                self.factor,
+                self.level,
+                coefficients.rows,
+            )
+            * coefficients
+        )
 
     def covariance(self) -> Any:
         """Return Cov(Y_block)."""
