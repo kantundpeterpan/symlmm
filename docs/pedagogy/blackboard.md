@@ -164,6 +164,46 @@ A.blup_mean("subject")     # E[b_i | Y_i]
 `Block.rows()` and `PanelGrid.row()` are dense-evaluator internals. Symbolic
 block queries use block matrices and symbolic block sizes.
 
+### Structured covariance
+
+Block moments use the factorized covariance
+
+\[
+V_A = R_A + Z_A G Z_A',
+\]
+
+and Woodbury for any inverse:
+
+\[
+V_A^{-1}
+=
+R_A^{-1}
+-
+R_A^{-1}Z_A
+\left(G^{-1}+Z_A'R_A^{-1}Z_A\right)^{-1}
+Z_A'R_A^{-1}.
+\]
+
+`Z_A` is built from the random-effect specification and `R_A^{-1}` comes from
+the residual covariance. RI/IID therefore reduces automatically:
+
+```python
+A.shrinkage("subject")
+# tau2/(sigma2 + n_subject:i*tau2) * 1'
+```
+
+without a dense \(n_i\times n_i\) inverse.
+
+The no-\(n\times n\)-inverse residual guarantee is IID-only. `R_A^{-1}` avoids
+an \(n_A\times n_A\) inverse only for covariance families that override
+`precision` (currently `IID`); every other residual family falls back to the
+formal `Inverse(R_A)`.
+
+Structured block queries currently require a single random-effect term. In a
+multi-term model each term contributes its own design and covariance block, so
+`Block.precision`, `Block.shrinkage`, and the BLUP moments raise `NotDefined`
+rather than dropping the other terms.
+
 ## Blackboard symbols
 
 `panel.symbols()` returns `ModelSymbols` bound to the panel's factor and

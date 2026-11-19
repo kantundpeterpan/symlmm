@@ -8,8 +8,8 @@ from typing import Any
 import sympy as sp  # type: ignore[import-untyped]
 
 from .blocks import Block
-from .blup import _inverse
 from .errors import ModelError
+from .structured import woodbury_covariance, woodbury_precision, woodbury_shrinkage
 
 
 def _assemble(model: Any, expression: Any) -> Any:
@@ -110,32 +110,78 @@ class BlockSet:
             ),
         )
 
+    def structured_random_design(self, term: str | None = None) -> Any:
+        """Return the block-diagonal structured random design.
+
+        `term` is required when the set contains blocks from multiple factors.
+        When supplied, every block must belong to that term's factor.
+        """
+        if term is None:
+            if len({block.factor for block in self.blocks}) > 1:
+                raise ModelError(
+                    "structured_random_design requires a term for mixed-factor block sets"
+                )
+        else:
+            resolved = next(
+                (item for item in self.model.terms() if item.name == term),
+                None,
+            )
+            if resolved is None:
+                raise ModelError(f"unknown random-effect term: {term!r}")
+            if any(block.factor != resolved.factor for block in self.blocks):
+                raise ModelError(
+                    "structured_random_design requires blocks from the term's factor; "
+                    f"term {term!r} belongs to factor {resolved.factor.name!r}"
+                )
+        return _assemble(
+            self.model,
+            sp.BlockDiagMatrix(
+                *[block.structured_random_design(term=term) for block in self.blocks]
+            ),
+        )
+
+    def residual_precision(self) -> Any:
+        """Return the block-diagonal residual precision."""
+        return _assemble(
+            self.model,
+            sp.BlockDiagMatrix(*[block.residual_precision() for block in self.blocks]),
+        )
+
+    def precision(self) -> Any:
+        """Return the joint V^-1 using Woodbury.
+
+        Single-term models only: structured block-set queries raise
+        `NotDefined` when the model has more than one random-effect term.
+        """
+        resolved = self._term()
+        G = sp.BlockDiagMatrix(*[resolved.random.cov.dense() for _ in self.blocks]).as_explicit()
+        Z = self.structured_random_design(resolved.name)
+        return woodbury_precision(G, Z, self.residual_precision())
+
     def _term(self, term: str | None = None) -> Any:
         """Resolve the shared random-effect term for this set."""
         factors = {block.factor for block in self.blocks}
         if len(factors) != 1:
             raise ModelError("block-set BLUP requires blocks from one factor")
+        self.blocks[0]._require_single_term()
         return self.blocks[0].term(term)
 
     def shrinkage(self, term: str | None = None) -> Any:
-        """Return the block-set shrinkage operator."""
+        """Return the block-set shrinkage operator using Woodbury."""
         resolved = self._term(term)
         G = sp.BlockDiagMatrix(*[resolved.random.cov.dense() for _ in self.blocks]).as_explicit()
-        Z = self.random_design(term=resolved.name)
-        V = self.covariance()
-        return G * Z.T * _inverse(V)
+        Z = self.structured_random_design(resolved.name)
+        return woodbury_shrinkage(G, Z, self.residual_precision())
 
     def blup_mean(self, term: str | None = None) -> Any:
         """Return the joint BLUP for the random effects in this set."""
         resolved = self._term(term)
-        beta = sp.Matrix(self.model.fixed.coefficients())
-        residual = self.response() - self.design() * beta
+        residual = self.response() - self.mean()
         return self.shrinkage(resolved.name) * residual
 
     def blup_covariance(self, term: str | None = None) -> Any:
-        """Return the joint conditional covariance for this set."""
+        """Return the joint conditional covariance for this set using Woodbury."""
         resolved = self._term(term)
         G = sp.BlockDiagMatrix(*[resolved.random.cov.dense() for _ in self.blocks]).as_explicit()
-        Z = self.random_design(term=resolved.name)
-        S = self.shrinkage(resolved.name)
-        return G - S * Z * G
+        Z = self.structured_random_design(resolved.name)
+        return woodbury_covariance(G, Z, self.residual_precision())
