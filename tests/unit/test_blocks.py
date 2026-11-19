@@ -373,6 +373,62 @@ def test_block_dense_shrinkage_matches_global_moments():
     assert (block.shrinkage("subject") - expected).equals(sp.zeros(2, block.size()))
 
 
+def test_dense_block_random_design_uses_term_level_columns():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 1)
+    rows = block.rows()
+    Z = dense.matrix_z()
+    term = block.term("subject")
+    start = dense._random_term_offset(term.random) + term.random.dim
+
+    actual = block.random_design(term="subject")
+
+    assert rows == [4, 5, 6, 7]
+    assert actual == Z[rows, start : start + term.random.dim]
+    assert actual != sp.zeros(block.size(), term.random.dim)
+    assert actual != Z[rows, : term.random.dim]
+
+
+def test_dense_block_random_design_uses_term_level_columns_with_reversed_rows():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[1, 1, 1, 1, 0, 0, 0, 0],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 1)
+    rows = block.rows()
+    Z = dense.matrix_z()
+    term = block.term("subject")
+    start = dense._random_term_offset(term.random) + term.random.dim
+
+    assert rows == [0, 1, 2, 3]
+    assert block.random_design(term="subject") == Z[rows, start : start + term.random.dim]
+
+
+def test_block_dense_shrinkage_level_one_matches_global_moments():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 1)
+    rows = block.rows()
+    term = block.term("subject")
+    start = dense._random_term_offset(term.random) + term.random.dim
+    columns = slice(start, start + term.random.dim)
+
+    G = dense.matrix_g()[columns, columns]
+    Z = dense.matrix_z()[rows, columns]
+    V = dense.matrix_covariance()[rows, :][:, rows]
+    expected = G * Z.T * V.inv()
+
+    assert (block.shrinkage("subject") - expected).equals(sp.zeros(2, block.size()))
+
+
 def test_block_blup_has_symbolic_shape():
     model, i = _ri_rs_symbolic_model()
     block = model.block("subject", i)
@@ -408,6 +464,35 @@ def test_block_blup_covariance_matches_global_dense():
 
     actual = block.blup_covariance("subject")
     expected = dense.blup_covariance(form="matrix")[0:2, 0:2]
+
+    assert (actual - expected).equals(sp.zeros(2, 2))
+
+
+def test_block_blup_mean_level_one_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 1)
+    y = sp.MatrixSymbol("y", dense.n, 1)
+
+    actual = block.blup_mean("subject").subs({block.response(): y[4:8, :]})
+    expected = dense.blup_mean(form="matrix")[2:4, :]
+
+    assert (actual - expected).equals(sp.zeros(2, 1))
+
+
+def test_block_blup_covariance_level_one_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 1)
+
+    actual = block.blup_covariance("subject")
+    expected = dense.blup_covariance(form="matrix")[2:4, 2:4]
 
     assert (actual - expected).equals(sp.zeros(2, 2))
 

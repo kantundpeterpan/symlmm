@@ -173,6 +173,12 @@ class Block:
             len(self.model.fixed.coefficients()),
         )
 
+    def _dense_term_bounds(self, term: Any) -> tuple[int, int]:
+        """Return dense `matrix_z` column bounds for a term's full level layout."""
+        start = self.model._random_term_offset(term.random)
+        levels = len(set(self.model._dense_group_codes(term.factor)))
+        return start, start + levels * term.random.dim
+
     def random_design(self, term: Any = None) -> Any:
         """Return the full or term-specific random design block.
 
@@ -184,6 +190,9 @@ class Block:
                 return matrix[self.rows(), :]
             resolved = _resolve_term(self.model, term)
             start = self.model._random_term_offset(resolved.random)
+            if resolved.factor == self.factor:
+                labels = sorted(set(self.model._dense_group_codes(resolved.factor)))
+                start += labels.index(self.level) * resolved.random.dim
             stop = start + resolved.random.dim
             return matrix[self.rows(), start:stop]
         if term is None:
@@ -209,10 +218,19 @@ class Block:
         if self.model is not target.model:
             raise ModelError("cross covariance requires blocks from the same model")
         values: dict[str, Any] = {}
+        dense_z = self.model.matrix_z() if self.model._dense else None
+        dense_g = self.model.matrix_g() if self.model._dense else None
         for term in terms(self.model):
-            Z = self.random_design(term=term.name)
-            Z_other = target.random_design(term=term.name)
-            values[term.name] = Z * term.random.cov.dense() * Z_other.T
+            if dense_z is not None and dense_g is not None:
+                start, stop = self._dense_term_bounds(term)
+                Z = dense_z[self.rows(), start:stop]
+                Z_other = dense_z[target.rows(), start:stop]
+                G = dense_g[start:stop, start:stop]
+                values[term.name] = Z * G * Z_other.T
+            else:
+                Z = self.random_design(term=term.name)
+                Z_other = target.random_design(term=term.name)
+                values[term.name] = Z * term.random.cov.dense() * Z_other.T
         values[RESIDUAL] = self.cross_residual(target)
         return values
 
@@ -223,6 +241,11 @@ class Block:
         resolved = terms(self.model)
         excluded = validate_exclusions(resolved, exclude)
         total = self.cross_covariance(other)
+        if self.model._dense:
+            values = self.covariance_terms(other)
+            for name in excluded:
+                total -= values[name]
+            return sp.simplify(total)
         for term in resolved:
             if term.name not in excluded:
                 continue
@@ -230,15 +253,12 @@ class Block:
             Z_other = other.random_design(term=term.name)
             total -= Z * term.random.cov.dense() * Z_other.T
         if RESIDUAL in excluded:
-            if self.model._dense:
-                total -= self.model.matrix_r()[self.rows(), :][:, other.rows()]
-            else:
-                total -= block_cross_residual(
-                    self.factor,
-                    self.level,
-                    other.factor,
-                    other.level,
-                )
+            total -= block_cross_residual(
+                self.factor,
+                self.level,
+                other.factor,
+                other.level,
+            )
         return sp.simplify(total)
 
     def residual(self) -> Any:
