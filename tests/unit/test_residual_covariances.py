@@ -27,8 +27,8 @@ def test_compound_symmetry_entry():
     assert symbolic.subs({i: 0, j: 0}) == sigma2
 
     concrete = symbolic.subs({i: 0, j: 1})
-    subject_0 = model.group(0, "subject")
-    subject_1 = model.group(1, "subject")
+    subject_0 = model.level_code("subject", 0)
+    subject_1 = model.level_code("subject", 1)
     within = concrete.subs({subject_0: 1, subject_1: 1})
     assert sp.simplify(within) == sigma2 * rho
     between = concrete.subs({subject_0: 1, subject_1: 2})
@@ -71,6 +71,10 @@ class _NumericModel:
 
     def group(self, i, factor):
         """Return a constant group label."""
+        return "subject"
+
+    def level_code(self, factor, i):
+        """Return a constant group code."""
         return "subject"
 
     def coordinate(self, i, name, within=None):
@@ -130,8 +134,8 @@ def test_compound_symmetry_nugget_at_zero_lag_only():
     i, j = model.indices()
     assert cov.entry(i, i, model) == sigma2 + omega2
     same_subject = cov.entry(i, j, model).subs({i: 0, j: 1})
-    subject_0 = model.group(0, "subject")
-    subject_1 = model.group(1, "subject")
+    subject_0 = model.level_code("subject", 0)
+    subject_1 = model.level_code("subject", 1)
     assert sp.simplify(same_subject.subs({subject_0: 1, subject_1: 1})) == sigma2 * rho
 
 

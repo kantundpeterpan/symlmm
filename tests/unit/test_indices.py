@@ -11,8 +11,8 @@ def test_observation_accessors_are_distinct_index_spaces():
     model = IndexedModel(n=n, groups=(Group("subject"),), coordinate="coordinate")
     i, _ = model.indices()
 
-    assert model.group(i, "subject") == sp.IndexedBase("g_subject", shape=(n,))[i]
-    assert model.occasion(i, "subject") == sp.IndexedBase("k_subject", shape=(n,))[i]
+    assert model.level_code("subject", i) == sp.IndexedBase("g_subject", shape=(n,))[i]
+    assert model._occasion_code(i, "subject") == sp.IndexedBase("k_subject", shape=(n,))[i]
     assert model.coordinate(i) == sp.IndexedBase("coordinate", shape=(n,))[i]
 
 
@@ -24,7 +24,9 @@ def test_within_coordinate_is_two_level():
     inside = model.coordinate(i, "visit_time", within="subject")
     assert (
         inside
-        == sp.IndexedBase("visit_time")[model.group(i, "subject"), model.occasion(i, "subject")]
+        == sp.IndexedBase("visit_time")[
+            model.level_code("subject", i), model._occasion_code(i, "subject")
+        ]
     )
 
 
@@ -49,14 +51,14 @@ def test_unknown_grouping_factor_raises_model_error():
     i, _ = model.indices()
 
     with pytest.raises(ModelError):
-        model.group(i, "missing")
+        model.level_code("missing", i)
 
 
 def test_nested_label_is_composite():
     n = sp.Symbol("n", positive=True, integer=True)
     model = IndexedModel(n=n, groups=(Nested("visit", within="subject"),))
     i, _ = model.indices()
-    label = model.group(i, "visit")
+    label = model.level_code("visit", i)
     assert label.base == sp.IndexedBase("g_subject_visit", shape=(n,))
 
 
@@ -64,7 +66,7 @@ def test_crossed_label_is_composite():
     n = sp.Symbol("n", positive=True, integer=True)
     model = IndexedModel(n=n, groups=(Crossed("subject", "item"),))
     i, _ = model.indices()
-    label = model.group(i, "item")
+    label = model.level_code("item", i)
     assert label.base == sp.IndexedBase("g_subject_item", shape=(n,))
 
 
@@ -93,8 +95,8 @@ def test_within_resolution_reuses_cached_symbol():
     )
     i, j = model.indices()
 
-    first = model._apply_within(model.group(i, "subject"), i, j, "subject")
-    second = model._apply_within(model.group(i, "subject"), i, j, "subject")
+    first = model._apply_within(model.level_code("subject", i), i, j, "subject")
+    second = model._apply_within(model.level_code("subject", i), i, j, "subject")
 
     assert first is second
 

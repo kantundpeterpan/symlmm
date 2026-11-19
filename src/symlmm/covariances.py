@@ -200,7 +200,9 @@ class CompoundSymmetry(ResidualCovariance):
 
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
-        same_group = sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+        same_group = sp.KroneckerDelta(
+            model.level_code(self.group, i), model.level_code(self.group, j)
+        )
         return sp.Piecewise(
             (self.var + self.nugget, sp.Eq(i, j)),
             (self.var * self.rho * same_group, True),
@@ -251,7 +253,7 @@ class Toeplitz(ResidualCovariance):
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(
-            model.group(i, self.group.name), model.group(j, self.group.name)
+            model.level_code(self.group.name, i), model.level_code(self.group.name, j)
         )
         ti = model.coordinate(i, self.coordinate.name, within=self.group.name)
         tj = model.coordinate(j, self.coordinate.name, within=self.group.name)
@@ -330,13 +332,13 @@ class AR1(ResidualCovariance):
         """Build an AR(1) residual covariance.
 
         The covariance is ``var * rho**Abs(t_i - t_j)`` within groups, where
-        ``t_i`` and ``t_j`` are the within-group occasion coordinates of rows
+        ``t_i`` and ``t_j`` are the within-group position coordinates of rows
         ``i`` and ``j``. This is the
         discrete-time AR(1) form when ``coordinate`` is numeric and unit-spaced;
         for irregular or non-unit spacing it is the continuous-time exponential
         covariance with ``rho`` per unit time. ``group`` names the grouping
         factor gating the covariance, and ``nugget`` is an optional non-negative
-        zero-lag measurement error. ``LMM`` rejects an explicit canonical
+        zero-lag measurement error. ``LMM`` rejects an explicit model
         coordinate only when it conflicts with a residual-declared coordinate;
         random-slope coordinates may differ.
         """
@@ -349,7 +351,7 @@ class AR1(ResidualCovariance):
     def entry(self, i: int, j: int, model: Any) -> sp.Expr:
         """Return the (i, j) observation entry."""
         same_group = sp.KroneckerDelta(
-            model.group(i, self.group.name), model.group(j, self.group.name)
+            model.level_code(self.group.name, i), model.level_code(self.group.name, j)
         )
         ti = model.coordinate(i, self.coordinate.name, within=self.group.name)
         tj = model.coordinate(j, self.coordinate.name, within=self.group.name)
@@ -475,7 +477,9 @@ class _SpatialCovariance(ResidualCovariance):
         distance = _euclidean_distance(i, j, model, self.coords, self.group)
         value = self.entry_from_distance(distance)
         if self.group is not None:
-            value *= sp.KroneckerDelta(model.group(i, self.group), model.group(j, self.group))
+            value *= sp.KroneckerDelta(
+                model.level_code(self.group, i), model.level_code(self.group, j)
+            )
         return value + _nugget_entry(self.nugget, i, j)
 
     @abstractmethod

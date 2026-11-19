@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Factor-first model hierarchy. `Group`, `Nested`, and `Crossed` declarations
+  resolve to `Factor` objects. `model.block(factor, level)` returns a `Block`
+  with `size()`, `rows()`, `mean()`, `design()`, `random_design()`,
+  `residual()`, `random_effect()`, `covariance()`, and `cross_covariance()`.
+- Panel views. `model.panel(factor, position)` returns a `PanelView` over a
+  factor and an optional `Position` axis, with `response_matrix()`,
+  `level_count()`, `position_count()`, `entry_mean()`,
+  `entry_covariance()`, `position_mean()`, and `position_covariance()`.
+- Term decomposition: `model.terms()`, `model.covariance_terms()`,
+  `model.partial_covariance()`, and `model.partial_correlation()`.
+- Package exports for `Factor`, `FactorSpec`, `Position`, `Block`,
+  `PanelView`, `Term`, and the `block_*` symbol helpers.
+
+### Changed
+
+- Public vocabulary is factor-first: factors index blocks, and an optional
+  position axis indexes entries within a block. The `group_*` and `time_*`
+  naming is no longer used in new documentation.
+- `docs/pedagogy/blackboard.md` demonstrates `model.panel(...)` and
+  `panel.symbols()`.
+
+### Deprecated
+
+- `LMM.group_*`, `LMM.time_*`, `LMM.response*`, and `LMM.symbols()` remain as
+  adapters for one release. They emit `DeprecationWarning` and forward to
+  `model.block(...)` and `model.panel(...)`.
+
+### Migration
+
+| Before | Now |
+|---|---|
+| `from symlmm.canonical import group_size_symbol` | `from symlmm.blocks import block_size_symbol`; call it as `block_size_symbol(factor, level)` |
+| `model.group_size(level)` | `model.block(factor, level).size()` |
+| `model.group_mean(level)` | `model.block(factor, level).mean()` |
+| `model.group_covariance(level)` | `model.block(factor, level).covariance()` |
+| `model.group_cross_covariance(g, h)` | `model.block(factor, g).cross_covariance(model.block(factor, h))` |
+| `model.time_mean(position)` | `model.panel(factor).position_mean(position)` |
+| `model.time_covariance(p, q)` | `model.panel(factor).position_covariance(p, q)` |
+| `model.symbols()` | `model.panel(factor, position).symbols()` |
+
 ## [0.5.0] - 2026-11-10
 
 This release includes the blackboard facade and the canonical group/occasion

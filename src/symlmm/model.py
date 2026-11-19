@@ -1,14 +1,12 @@
 """Model base classes and index accessors.
 
-Canonical notation uses ``i`` for the group and ``t`` for the occasion:
-``Y_i`` is the group response row in a balanced panel, ``Y[:, t]`` is the
-occasion column, and ``Y_{it}`` is the scalar response. The stacked
-observation-row cursor used internally by the matrix engine is an
-implementation detail, not public model notation.
+Row-level accessors address the stacked observation vector. Blocks, panels, and
+positions provide the factor-first views built on top of those rows.
 """
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -16,13 +14,24 @@ import sympy as sp  # type: ignore[import-untyped]
 
 from .covariances import IID, ResidualCovariance
 from .errors import FormArityError, ModelError, NotDefined
-from .specs import Covariate, Crossed, Fixed, Group, Nested, RandomEffects
+from .factors import FactorResolver
+from .specs import (
+    Covariate,
+    Crossed,
+    Factor,
+    FactorSpec,
+    Fixed,
+    Group,
+    Nested,
+    Position,
+    RandomEffects,
+)
 from .symbols import observation_index
 
 if TYPE_CHECKING:
     from .forms import Form
 
-GroupSpec = Group | Nested | Crossed
+GroupSpec = FactorSpec
 
 __all__ = ["IID", "LMM", "IndexedModel"]
 
@@ -51,20 +60,22 @@ def _residual_covariate(residual: ResidualCovariance) -> Covariate | None:
     return None
 
 
-def _primary_definition(
-    definition: GroupSpec,
-    registered: Mapping[str, GroupSpec],
-) -> GroupSpec:
-    """Return the registered definition for `definition`, when present."""
-    return registered.get(definition.name, definition)
-
-
 def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
-    """Return a total ordering key for a derived-occasion coordinate value."""
+    """Return a total ordering key for a derived position coordinate value."""
     try:
         return (0, sp.default_sort_key(sp.sympify(value)), position)
     except (sp.SympifyError, TypeError):  # fmt: skip
         return (1, str(value), position)
+
+
+def _reject_free_symbols(values: Sequence[Any], column: str) -> None:
+    """Reject derived coordinates whose values contain free symbols."""
+    for value in values:
+        if isinstance(value, sp.Basic) and value.free_symbols:
+            raise ModelError(
+                f"coordinate column {column!r} contains free symbols; "
+                "substitute concrete values or supply an explicit position column"
+            )
 
 
 class IndexedModel:
@@ -84,6 +95,8 @@ class IndexedModel:
     ) -> None:
         self.n = n
         self.groups = tuple(groups)
+        self._factor_resolver = FactorResolver(self.groups)
+        self._factors = self._factor_resolver.resolve_all()
         self.coordinate_name = coordinate
         self.occasion_names = occasion
         self.covariates = tuple(covariates)
@@ -98,11 +111,27 @@ class IndexedModel:
         """Return the two observation indices used by entry queries."""
         return self._i, self._j
 
-    def _group_spec(self, factor: str) -> GroupSpec:
-        for spec in self.groups:
-            if spec.name == factor:
-                return spec
-        raise ModelError(f"unknown grouping factor: {factor!r}")
+    def factor(self, ref: Any) -> Factor:
+        """Return a resolved factor by name, path, declaration, or factor."""
+        return self._factor_resolver.resolve(ref)
+
+    def factors(self) -> tuple[Factor, ...]:
+        """Return all resolved factors in declaration order."""
+        return self._factors
+
+    def level_code(self, factor: Any, i: Any) -> Any:
+        """Return the factor level code for observation row `i`."""
+        resolved = self.factor(factor)
+        if self._dense:
+            return self._dense_group_codes(resolved)[int(i)]
+        label = resolved.label.replace(":", "_")
+        return sp.IndexedBase(f"g_{label}", shape=(self.n,))[i]
+
+    def _group_spec(self, factor: str) -> Factor:
+        try:
+            return self._factor_resolver.resolve(factor)
+        except ModelError as exc:
+            raise ModelError(f"unknown grouping factor: {factor!r}") from exc
 
     def _observation_column(self, name: str) -> Sequence[Any]:
         """Return the dense observation column named `name`."""
@@ -116,20 +145,30 @@ class IndexedModel:
         return sp.sympify(self._observation_column(name)[int(i)])
 
     def group(self, i: Any, factor: str) -> Any:
-        """Return the group-level index for row `i` and factor `factor`."""
-        spec = self._group_spec(factor)
-        if self._dense:
-            return self._dense_group_codes(spec)[int(i)]
-        label = spec.label.replace(":", "_")
-        return sp.IndexedBase(f"g_{label}", shape=(self.n,))[i]
+        """Deprecated: use level_code(factor, i)."""
+        warnings.warn(
+            "group is deprecated; use level_code(factor, i)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.level_code(factor, i)
 
-    def occasion(self, i: Any, factor: str) -> Any:
-        """Return the within-group occasion index for row `i` and factor `factor`."""
+    def _occasion_code(self, i: Any, factor: str) -> Any:
+        """Return the within-group position index for row `i` and factor `factor`."""
         spec = self._group_spec(factor)
         if self._dense:
             return self._dense_occasion_codes(spec)[int(i)]
         label = spec.label.replace(":", "_")
         return sp.IndexedBase(f"k_{label}", shape=(self.n,))[i]
+
+    def occasion(self, i: Any, factor: str) -> Any:
+        """Deprecated: use panel(...).position_code(i)."""
+        warnings.warn(
+            "occasion is deprecated; use panel(...).position_code(i)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._occasion_code(i, factor)
 
     def coordinate(
         self,
@@ -137,7 +176,7 @@ class IndexedModel:
         name: str | Covariate | None = None,
         within: str | None = None,
     ) -> Any:
-        """Return a row coordinate, or ``X[group(i), occasion(i)]`` when within."""
+        """Return a row coordinate, or a two-level ``X[level, position]`` when within."""
         selected = self.coordinate_name if name is None else name
         if selected is None:
             raise ModelError("no coordinate name; pass coordinate=... or coordinate(i, name)")
@@ -149,42 +188,36 @@ class IndexedModel:
         spec = self._group_spec(within)
         if self._dense:
             return self._nested_coordinate_value(i, selected_name, spec)
-        return sp.IndexedBase(selected_name)[self.group(i, within), self.occasion(i, within)]
+        return sp.IndexedBase(selected_name)[
+            self.level_code(spec.name, i), self._occasion_code(i, spec.name)
+        ]
 
-    def _dense_group_codes(self, spec: GroupSpec) -> list[int]:
-        """Return integer codes for the composite label of `spec`."""
-        cached = self._group_cache.get(spec.label)
+    def _dense_group_codes(self, factor: Factor) -> list[int]:
+        """Return integer codes for a resolved factor's component path."""
+        cached = self._group_cache.get(factor.label)
         if cached is not None:
             return cached
         raw: list[Any]
-        if isinstance(spec, Nested):
-            if spec.label in self._observations:
-                raw = list(self._observation_column(spec.label))
-            else:
-                left = self._observation_column(spec.within)
-                right = self._observation_column(spec.child)
-                raw = [f"{a}:{b}" for a, b in zip(left, right, strict=True)]
-        elif isinstance(spec, Crossed):
-            if spec.label in self._observations:
-                raw = list(self._observation_column(spec.label))
-            else:
-                left = self._observation_column(spec.left)
-                right = self._observation_column(spec.right)
-                raw = [f"{a}:{b}" for a, b in zip(left, right, strict=True)]
+        composite = ":".join(factor.components)
+        if composite in self._observations:
+            raw = list(self._observation_column(composite))
         else:
-            raw = list(self._observation_column(spec.name))
+            columns = [list(self._observation_column(name)) for name in factor.components]
+            raw = [
+                ":".join(str(value) for value in values) for values in zip(*columns, strict=True)
+            ]
         codes = {label: code for code, label in enumerate(sorted(set(raw), key=str))}
         result = [codes[label] for label in raw]
-        self._group_cache[spec.label] = result
+        self._group_cache[factor.label] = result
         return result
 
     def _occasion_column(self, factor: str) -> str | None:
-        """Return the explicit occasion column for `factor`, if configured."""
+        """Return the explicit position column for `factor`, if configured."""
         if isinstance(self.occasion_names, Mapping):
             return self.occasion_names.get(factor)
         return self.occasion_names
 
-    def _within_symbol(self, spec: GroupSpec) -> sp.Symbol:
+    def _within_symbol(self, spec: Factor) -> sp.Symbol:
         """Return the cached common-level symbol for `spec`."""
         key = spec.label
         symbol = self._within_symbols.get(key)
@@ -193,10 +226,10 @@ class IndexedModel:
             self._within_symbols[key] = symbol
         return symbol
 
-    def _dense_occasion_codes(self, spec: GroupSpec) -> list[int]:
-        """Return integer occasion codes within each group for `spec`.
+    def _dense_occasion_codes(self, spec: Factor) -> list[int]:
+        """Return integer position codes within each group for `spec`.
 
-        Derived occasion codes are ordered symbolically when possible and fall
+        Derived position codes are ordered symbolically when possible and fall
         back to string ordering otherwise. Numeric ``1`` and ``1.0`` are
         distinct coordinate values for nesting validation.
         """
@@ -220,6 +253,7 @@ class IndexedModel:
                 raw = list(self._observation_column(self.coordinate_name))
             else:
                 raw = list(range(self.n))
+            _reject_free_symbols(raw, self.coordinate_name or "position")
             for group_code in sorted(set(groups)):
                 positions = [k for k, value in enumerate(groups) if value == group_code]
                 ordered = sorted(positions, key=lambda k: _occasion_sort_key(raw[k], k))
@@ -234,8 +268,38 @@ class IndexedModel:
         self._occasion_cache[spec.label] = result
         return result
 
-    def _nested_coordinate_value(self, i: Any, name: str, spec: GroupSpec) -> Any:
-        """Return a dense coordinate validated as constant within group/occasion."""
+    def _dense_position_codes_for(self, factor: Any, position: Any) -> list[int]:
+        """Return dense position codes for a factor and position definition."""
+        resolved = self.factor(factor)
+        raw = list(self._observation_column(position.column or position.name))
+        groups = self._dense_group_codes(resolved)
+        result = [0] * self.n
+        if position.column is None:
+            _reject_free_symbols(raw, position.name)
+        if position.column is not None:
+            per_group: dict[int, dict[Any, int]] = {}
+            for row, group_code in enumerate(groups):
+                mapping = per_group.setdefault(group_code, {})
+                value = raw[row]
+                if value not in mapping:
+                    mapping[value] = len(mapping)
+                result[row] = mapping[value]
+            return result
+        for group_code in sorted(set(groups)):
+            rows = [row for row, code in enumerate(groups) if code == group_code]
+            ordered = sorted(rows, key=lambda row: _occasion_sort_key(raw[row], row))
+            code = -1
+            previous: Any = object()
+            for row in ordered:
+                value = raw[row]
+                if value != previous:
+                    code += 1
+                    previous = value
+                result[row] = code
+        return result
+
+    def _nested_coordinate_value(self, i: Any, name: str, spec: Factor) -> Any:
+        """Return a dense coordinate validated as constant within group/position."""
         key = (name, spec.label)
         mapping = self._coordinate_cache.get(key)
         if mapping is None:
@@ -253,7 +317,7 @@ class IndexedModel:
                     )
                 mapping[pair] = value
             self._coordinate_cache[key] = mapping
-        return mapping[(self.group(i, spec.name), self.occasion(i, spec.name))]
+        return mapping[(self.level_code(spec.name, i), self._occasion_code(i, spec.name))]
 
     def covariate(self, i: Any, name: str | Covariate) -> Any:
         """Return a covariate value for observation `i`."""
@@ -297,25 +361,29 @@ class LMM(IndexedModel):
                     "combine intercepts and slopes into one block"
                 )
             seen_groups.add(group_name)
-        registered: dict[str, GroupSpec] = {}
-
-        def register(spec: GroupSpec) -> None:
-            existing = registered.get(spec.name)
-            if existing is None:
-                registered[spec.name] = spec
-            elif existing != spec:
-                raise ModelError(
-                    f"conflicting grouping-factor specs for {spec.name!r}: "
-                    f"{existing!r} and {spec!r}"
-                )
-
+        specs: list[FactorSpec] = []
+        declared: dict[str, FactorSpec] = {}
         for spec in groups or ():
-            register(spec)
+            existing = declared.get(spec.name)
+            if existing is None:
+                declared[spec.name] = spec
+                specs.append(spec)
+            elif existing != spec:
+                specs.append(spec)
+
+        def add_implicit(spec: FactorSpec) -> None:
+            existing = declared.get(spec.name)
+            if existing is None:
+                declared[spec.name] = spec
+                specs.append(spec)
+            elif not isinstance(spec, Group) and existing != spec:
+                specs.append(spec)
+
         for term in self.random:
-            registered.setdefault(term.group.name, term.group)
+            add_implicit(term.group)
         residual_group = _residual_group(residual)
         if residual_group is not None:
-            registered.setdefault(residual_group.name, residual_group)
+            add_implicit(residual_group)
         residual_covariate = _residual_covariate(residual)
         residual_coordinate = residual_covariate.name if residual_covariate is not None else None
         slope_coordinates = tuple(
@@ -335,13 +403,21 @@ class LMM(IndexedModel):
         else:
             coordinate_name = None
 
-        primary: GroupSpec | None
+        super().__init__(
+            n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
+            groups=tuple(specs),
+            coordinate=coordinate_name,
+            occasion=occasion,
+            covariates=tuple(covariate.name for covariate in fixed.covariates()),
+        )
+
+        primary: Factor | None
         if self.random:
-            primary = _primary_definition(self.random[0].group, registered)
+            primary = self.factor(self.random[0].group.name)
         elif residual_group is not None:
-            primary = _primary_definition(residual_group, registered)
-        elif registered:
-            primary = next(iter(registered.values()))
+            primary = self.factor(residual_group.name)
+        elif self._factors:
+            primary = self._factors[0]
         else:
             primary = None
 
@@ -351,27 +427,28 @@ class LMM(IndexedModel):
             None if occasion_definition is None else occasion_definition.index
         )
         if group_index is not None and occasion_index is not None and group_index == occasion_index:
-            raise ModelError("group and occasion indices must be distinct")
+            raise ModelError("group and position indices must be distinct")
 
-        self.primary_group_definition = primary
+        self.primary_group_definition = self._declaration(primary)
         self.occasion_definition = occasion_definition
         self.group_index = group_index
         self.occasion_index = occasion_index
 
-        super().__init__(
-            n=n if n is not None else sp.Symbol("n", positive=True, integer=True),
-            groups=tuple(registered.values()),
-            coordinate=coordinate_name,
-            occasion=occasion,
-            covariates=tuple(covariate.name for covariate in fixed.covariates()),
-        )
+    def _declaration(self, factor: Factor | None) -> FactorSpec | Factor | None:
+        """Return the declaration backing a resolved factor, when present."""
+        if factor is None:
+            return None
+        for spec in self.groups:
+            if spec.name == factor.name:
+                return spec
+        return factor
 
     def _canonical_covariate(
         self,
         coordinate_name: str | None,
         residual_covariate: Covariate | None,
     ) -> Covariate | None:
-        """Return the covariate definition for the model's canonical coordinate."""
+        """Return the covariate definition for the model's coordinate."""
         if coordinate_name is None:
             return None
         if residual_covariate is not None and residual_covariate.name == coordinate_name:
@@ -406,7 +483,7 @@ class LMM(IndexedModel):
 
     @property
     def primary_group(self) -> str | None:
-        """Return the primary grouping factor for canonical group indexing."""
+        """Return the primary grouping factor for group indexing."""
         definition = self.primary_group_definition
         if definition is None:
             return None
@@ -416,22 +493,22 @@ class LMM(IndexedModel):
         """Return the primary grouping-factor name or raise `NotDefined`."""
         factor = self.primary_group
         if self.group_index is None or factor is None:
-            raise NotDefined("canonical group indexing requires a grouping factor")
+            raise NotDefined("group indexing requires a grouping factor")
         return factor
 
     def _require_occasion_index(self) -> Covariate:
-        """Return the canonical occasion definition or raise `NotDefined`."""
+        """Return the position definition or raise `NotDefined`."""
         definition = self.occasion_definition
         if self.occasion_index is None or definition is None:
-            raise NotDefined("canonical occasion indexing requires a coordinate")
+            raise NotDefined("position indexing requires a coordinate")
         return definition
 
     def _group_rows(self, group: Any) -> list[int]:
-        """Return dense observation rows belonging to `group` in canonical order."""
+        """Return dense observation rows belonging to `group` in position order."""
         factor = self._require_group_index()
         if not self._dense:
             raise ModelError("group rows are available only in dense mode")
-        rows = [k for k in range(self.n) if self.group(k, factor) == group]
+        rows = [k for k in range(self.n) if self.level_code(factor, k) == group]
         if self.occasion_index is None:
             return rows
         codes = self._dense_occasion_codes(self._group_spec(factor))
@@ -457,126 +534,14 @@ class LMM(IndexedModel):
             offset += len(labels) * candidate.dim
         return offset
 
-    def group_count(self) -> Any:
-        """Return the number of groups (symbolic or dense)."""
-        factor = self._require_group_index()
-        if self._dense:
-            return len(set(self._dense_group_codes(self._group_spec(factor))))
-        return sp.Symbol("m", positive=True, integer=True)
-
-    def occasion_count(self) -> Any:
-        """Return the number of occasions for a balanced panel."""
-        definition = self._require_occasion_index()
-        factor = self._require_group_index()
-        if not self._dense:
-            return sp.Symbol("T", positive=True, integer=True)
-        column = self._observation_column(definition.name)
-        codes = self._dense_group_codes(self._group_spec(factor))
-        per_group: dict[int, list[Any]] = {}
-        for position, code in enumerate(codes):
-            per_group.setdefault(code, []).append(column[position])
-        occasion_sets: list[set[Any]] = []
-        for values in per_group.values():
-            distinct = set(values)
-            if len(distinct) != len(values):
-                raise NotDefined("occasion vectors require a balanced panel")
-            occasion_sets.append(distinct)
-        if not occasion_sets:
-            return 0
-        if any(values != occasion_sets[0] for values in occasion_sets[1:]):
-            raise NotDefined("occasion vectors require a balanced panel")
-        return len(occasion_sets[0])
-
-    def group_size(self, group: Any) -> Any:
-        """Return the number of observations in `group`."""
-        self._require_group_index()
-        if self._dense:
-            return len(self._group_rows(group))
-        from .canonical import group_size_symbol
-
-        return group_size_symbol(group)
-
-    def response(self, group: Any, occasion: Any = None) -> Any:
-        """Return Y_group as a row, or Y_group,occasion as a scalar."""
-        self._require_group_index()
-        matrix = self.response_matrix()
-        if occasion is None:
-            return matrix[group, :]
-        return matrix[group, occasion]
-
-    def response_matrix(self) -> Any:
-        """Return the balanced-panel response matrix Y (groups x occasions)."""
-        self._require_group_index()
-        self._require_occasion_index()
-        return sp.MatrixSymbol("Y", self.group_count(), self.occasion_count())
-
-    def time_response(self, occasion: Any) -> Any:
-        """Return the occasion column vector Y[:, occasion]."""
-        return self.response_matrix()[:, occasion]
-
-    def fixed_design(self, group: Any) -> Any:
-        """Return X_group."""
-        self._require_group_index()
-        from .canonical import group_mean
-
-        if self._dense:
-            rows = self._group_rows(group)
-            return self.matrix_x()[rows, :]
-        return group_mean(group, self.group_size(group), len(self.fixed.coefficients()))
-
-    def random_design(self, group: Any) -> Any:
-        """Return Z_group for the primary grouping factor."""
-        factor = self._require_group_index()
-        from .canonical import group_random_design
-
-        term = self._primary_random_term()
-        q = 0 if term is None else term.dim
-        if self._dense:
-            rows = self._group_rows(group)
-            if term is None:
-                return sp.zeros(len(rows), 0)
-            levels = sorted(set(self._dense_group_codes(self._group_spec(factor))))
-            if group not in levels:
-                return sp.zeros(len(rows), q)
-            start = self._random_term_offset(term) + levels.index(group) * q
-            return self.matrix_z()[rows, start : start + q]
-        return group_random_design(group, self.group_size(group), q)
-
-    def residual_covariance(self, group: Any) -> Any:
-        """Return R_group."""
-        self._require_group_index()
-        from .canonical import group_residual
-
-        if self._dense:
-            rows = self._group_rows(group)
-            return self.matrix_r()[rows, :][:, rows]
-        return group_residual(group, self.group_size(group))
-
-    def random_effect(self, group: Any) -> Any:
-        """Return b_group for the primary grouping factor."""
-        self._require_group_index()
-        from .canonical import group_coefficients
-
-        term = self._primary_random_term()
-        q = 0 if term is None else term.dim
-        return group_coefficients(group, q)
-
     def _require_single_grouping_factor(self) -> None:
         """Raise `NotDefined` when random terms use more than one factor."""
         groups = {term.group for term in self.random}
         if len(groups) > 1:
-            raise NotDefined("canonical group blocks require a single grouping factor")
-
-    def _occasion_moment_group_count(self) -> int:
-        """Return a concrete group count after validating the balanced panel."""
-        count = self.group_count()
-        if not isinstance(count, int):
-            raise NotDefined("occasion-column moments require a concrete group count")
-        self.occasion_count()
-        return count
+            raise NotDefined("group blocks require a single grouping factor")
 
     def _entry_row(self, group: Any, occasion: Any) -> Any:
-        """Return the group-block row for canonical `occasion`."""
+        """Return the group-block row for a position within `group`."""
         if not self._dense:
             return occasion
         factor = self._require_group_index()
@@ -584,64 +549,203 @@ class LMM(IndexedModel):
         for position, row in enumerate(self._group_rows(group)):
             if codes[row] == occasion:
                 return position
-        raise NotDefined(f"occasion {occasion!r} is not present in group {group!r}")
+        raise NotDefined(f"position {occasion!r} is not present in group {group!r}")
+
+    def terms(self) -> Any:
+        """Return named random-effect terms in model order."""
+        from .decomposition import terms
+
+        return terms(self)
+
+    def covariance_terms(self, a: Any, b: Any) -> Any:
+        """Return per-term contributions to Cov(Y_a, Y_b)."""
+        from .blocks import Block
+        from .decomposition import covariance_terms
+
+        if isinstance(a, Block) and isinstance(b, Block):
+            return a.covariance_terms(b)
+        if isinstance(a, Block) or isinstance(b, Block):
+            raise ModelError("covariance_terms requires two rows or two blocks")
+        return covariance_terms(self, a, b)
+
+    def partial_covariance(
+        self,
+        a: Any,
+        b: Any,
+        *,
+        exclude: tuple[str, ...] = (),
+    ) -> Any:
+        """Return covariance with named term contributions removed."""
+        from .blocks import Block
+        from .decomposition import partial_covariance
+
+        if isinstance(a, Block) and isinstance(b, Block):
+            return a.partial_covariance(b, exclude=exclude)
+        if isinstance(a, Block) or isinstance(b, Block):
+            raise ModelError("partial_covariance requires two rows or two blocks")
+        return partial_covariance(self, a, b, exclude=exclude)
+
+    def partial_correlation(
+        self,
+        a: Any,
+        b: Any,
+        *,
+        exclude: tuple[str, ...] = (),
+    ) -> Any:
+        """Return partial correlation for scalar entries."""
+        from .blocks import Block
+        from .decomposition import partial_correlation
+
+        if isinstance(a, Block) or isinstance(b, Block):
+            raise ModelError("partial_correlation is defined for scalar entries only")
+        return partial_correlation(self, a, b, exclude=exclude)
+
+    def block(self, factor: Any, level: Any) -> Any:
+        """Return the observation block for a factor level."""
+        from .blocks import Block
+
+        return Block(self, self.factor(factor), level)
+
+    def block_mean(self, factor: Any, level: Any) -> Any:
+        """Return E[Y_block]."""
+        return self.block(factor, level).mean()
+
+    def block_covariance(self, factor: Any, level: Any) -> Any:
+        """Return Cov(Y_block)."""
+        return self.block(factor, level).covariance()
+
+    def block_cross_covariance(
+        self,
+        factor1: Any,
+        level1: Any,
+        factor2: Any,
+        level2: Any,
+    ) -> Any:
+        """Return Cov(Y_block1, Y_block2)."""
+        return self.block(factor1, level1).cross_covariance(self.block(factor2, level2))
+
+    def panel(self, factor: Any = None, position: Any = None) -> Any:
+        """Return a panel view for a factor and optional position axis."""
+        from .panel import PanelView
+
+        selected_factor = factor if factor is not None else self.primary_group
+        if selected_factor is None:
+            raise NotDefined("panel view requires a factor")
+        selected_position: Any
+        if position is None:
+            if self.coordinate_name is None:
+                selected_position = None
+            else:
+                selected_position = Position(
+                    self.coordinate_name,
+                    index=self.occasion_index,
+                )
+        elif isinstance(position, str) and position == self.coordinate_name:
+            selected_position = Position(position, index=self.occasion_index)
+        else:
+            selected_position = position
+        return PanelView(self, selected_factor, selected_position)
+
+    def _deprecated(self, name: str) -> Any:
+        """Return the default panel view and emit a deprecation warning."""
+        warnings.warn(
+            f"{name} is deprecated; use panel(...)",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return self.panel()
+
+    def response_matrix(self) -> Any:
+        """Deprecated: use panel(...).response_matrix()."""
+        return self._deprecated("response_matrix").response_matrix()
+
+    def response(self, group: Any, occasion: Any = None) -> Any:
+        """Deprecated: use panel(...).response(...)."""
+        panel = self._deprecated("response")
+        if occasion is None:
+            return panel.response(group)
+        return panel.response_matrix()[group, occasion]
+
+    def group_count(self) -> Any:
+        """Deprecated: use panel(...).level_count()."""
+        return self._deprecated("group_count").level_count()
+
+    def occasion_count(self) -> Any:
+        """Deprecated: use panel(...).position_count()."""
+        return self._deprecated("occasion_count").position_count()
+
+    def group_size(self, group: Any) -> Any:
+        """Deprecated: use block(...).size()."""
+        panel = self._deprecated("group_size")
+        return panel.model.block(panel.factor, group).size()
 
     def group_mean(self, group: Any) -> Any:
-        """Return E[Y_group]."""
-        coefficients = self.fixed.coefficients()
-        beta = sp.Matrix(len(coefficients), 1, coefficients)
-        return self.fixed_design(group) * beta
+        """Deprecated: use block(...).mean()."""
+        panel = self._deprecated("group_mean")
+        return panel.model.block(panel.factor, group).mean()
 
     def group_covariance(self, group: Any) -> Any:
-        """Return Cov(Y_group); requires a single grouping factor."""
-        self._require_single_grouping_factor()
-        term = self._primary_random_term()
-        residual = self.residual_covariance(group)
-        if term is None:
-            return residual
-        Z = self.random_design(group)
-        G = term.cov.dense()
-        return Z * G * Z.T + residual
+        """Deprecated: use block(...).covariance()."""
+        panel = self._deprecated("group_covariance")
+        return panel.model.block(panel.factor, group).covariance()
 
     def group_cross_covariance(self, group: Any, other: Any) -> Any:
-        """Return Cov(Y_group, Y_other); zero for a single grouping factor."""
-        self._require_single_grouping_factor()
-        if group == other:
-            return self.group_covariance(group)
-        rows = self.group_size(group)
-        columns = self.group_size(other)
-        if isinstance(rows, int) and isinstance(columns, int):
-            return sp.zeros(rows, columns)
-        return sp.ZeroMatrix(rows, columns)
+        """Deprecated: use block(...).cross_covariance(...)."""
+        panel = self._deprecated("group_cross_covariance")
+        return panel.model.block(panel.factor, group).cross_covariance(
+            panel.model.block(panel.factor, other)
+        )
 
     def entry_mean(self, group: Any, occasion: Any) -> Any:
-        """Return E[Y_group,occasion]."""
-        return self.group_mean(group)[self._entry_row(group, occasion), 0]
+        """Deprecated: use panel(...).entry_mean(...)."""
+        return self._deprecated("entry_mean").entry_mean(group, occasion)
 
     def entry_covariance(self, group: Any, t1: Any, t2: Any) -> Any:
-        """Return Cov(Y_group,t1, Y_group,t2)."""
-        row1 = self._entry_row(group, t1)
-        row2 = self._entry_row(group, t2)
-        return self.group_covariance(group)[row1, row2]
+        """Deprecated: use panel(...).entry_covariance(...)."""
+        return self._deprecated("entry_covariance").entry_covariance(group, t1, t2)
 
     def entry_cross_covariance(self, group: Any, t1: Any, other: Any, t2: Any) -> Any:
-        """Return Cov(Y_group,t1, Y_other,t2)."""
-        row1 = self._entry_row(group, t1)
-        row2 = self._entry_row(other, t2)
-        return self.group_cross_covariance(group, other)[row1, row2]
+        """Deprecated: use panel(...).entry_cross_covariance(...)."""
+        return self._deprecated("entry_cross_covariance").entry_cross_covariance(
+            group, t1, other, t2
+        )
 
-    def time_mean(self, occasion: Any) -> Any:
-        """Return E[Y_{.occasion}] for a concrete balanced panel."""
-        count = self._occasion_moment_group_count()
-        self._require_single_grouping_factor()
-        entries = [self.entry_mean(group, occasion) for group in range(count)]
-        return sp.Matrix(count, 1, entries)
+    def time_response(self, position: Any) -> Any:
+        """Deprecated: use panel(...).response_column(...)."""
+        return self._deprecated("time_response").response_column(position)
 
-    def time_covariance(self, t1: Any, t2: Any) -> Any:
-        """Return Cov(Y_{.t1}, Y_{.t2}) as a diagonal group matrix."""
-        count = self._occasion_moment_group_count()
-        self._require_single_grouping_factor()
-        return sp.diag(*(self.entry_covariance(group, t1, t2) for group in range(count)))
+    def time_mean(self, position: Any) -> Any:
+        """Deprecated: use panel(...).position_mean(...)."""
+        return self._deprecated("time_mean").position_mean(position)
+
+    def time_covariance(self, p1: Any, p2: Any) -> Any:
+        """Deprecated: use panel(...).position_covariance(...)."""
+        return self._deprecated("time_covariance").position_covariance(p1, p2)
+
+    def fixed_design(self, group: Any) -> Any:
+        """Deprecated: use block(...).design()."""
+        panel = self._deprecated("fixed_design")
+        return panel.model.block(panel.factor, group).design()
+
+    def random_design(self, group: Any) -> Any:
+        """Deprecated: use block(...).random_design()."""
+        panel = self._deprecated("random_design")
+        return panel.model.block(panel.factor, group).random_design()
+
+    def residual_covariance(self, group: Any) -> Any:
+        """Deprecated: use block(...).residual()."""
+        panel = self._deprecated("residual_covariance")
+        return panel.model.block(panel.factor, group).residual()
+
+    def random_effect(self, group: Any) -> Any:
+        """Deprecated: use block(...).random_effect()."""
+        panel = self._deprecated("random_effect")
+        return panel.model.block(panel.factor, group).random_effect()
+
+    def symbols(self) -> Any:
+        """Deprecated: use panel(...).symbols()."""
+        warnings.warn("symbols is deprecated; use panel(...)", DeprecationWarning, stacklevel=2)
+        return self.panel().symbols()
 
     def dense(
         self,
@@ -737,7 +841,10 @@ class LMM(IndexedModel):
             X = sp.MatrixSymbol("X", n, p)
             beta = sp.MatrixSymbol("beta", p, 1)
             return X * beta
-        return self.matrix_x() * sp.Matrix(self.fixed.coefficients())
+        coefficients = sp.Matrix(self.fixed.coefficients())
+        if coefficients.cols == 0:
+            coefficients = sp.zeros(0, 1)
+        return self.matrix_x() * coefficients
 
     def matrix_covariance(self) -> Any:
         """Return the matrix form of V = Z G Z' + R."""
@@ -779,14 +886,19 @@ class LMM(IndexedModel):
         zj = term.z(self, j)
         value = (zi.T * term.cov.dense() * zj)[0, 0]
         return value * sp.KroneckerDelta(
-            self.group(i, term.group.name), self.group(j, term.group.name)
+            self.level_code(term.group.name, i), self.level_code(term.group.name, j)
         )
 
     def _apply_within(self, expr: Any, i: Any, j: Any, within: str) -> Any:
         """Resolve a factor's delta by placing both rows in one common level."""
         spec = self._group_spec(within)
         common = self._within_symbol(spec)
-        return expr.subs({self.group(i, within): common, self.group(j, within): common})
+        return expr.subs(
+            {
+                self.level_code(within, i): common,
+                self.level_code(within, j): common,
+            }
+        )
 
     def covariance_entry(self, i: Any, j: Any, within: str | None = None) -> Any:
         """Return the structured sum-form covariance entry.
