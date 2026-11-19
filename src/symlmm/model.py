@@ -68,6 +68,16 @@ def _occasion_sort_key(value: Any, position: int) -> tuple[Any, ...]:
         return (1, str(value), position)
 
 
+def _reject_free_symbols(values: Sequence[Any], column: str) -> None:
+    """Reject derived coordinates whose values contain free symbols."""
+    for value in values:
+        if isinstance(value, sp.Basic) and value.free_symbols:
+            raise ModelError(
+                f"coordinate column {column!r} contains free symbols; "
+                "substitute concrete values or supply an explicit position column"
+            )
+
+
 class IndexedModel:
     """Base class for models over a stacked observation vector."""
 
@@ -243,6 +253,7 @@ class IndexedModel:
                 raw = list(self._observation_column(self.coordinate_name))
             else:
                 raw = list(range(self.n))
+            _reject_free_symbols(raw, self.coordinate_name or "position")
             for group_code in sorted(set(groups)):
                 positions = [k for k, value in enumerate(groups) if value == group_code]
                 ordered = sorted(positions, key=lambda k: _occasion_sort_key(raw[k], k))
@@ -263,6 +274,8 @@ class IndexedModel:
         raw = list(self._observation_column(position.column or position.name))
         groups = self._dense_group_codes(resolved)
         result = [0] * self.n
+        if position.column is None:
+            _reject_free_symbols(raw, position.name)
         if position.column is not None:
             per_group: dict[int, dict[Any, int]] = {}
             for row, group_code in enumerate(groups):

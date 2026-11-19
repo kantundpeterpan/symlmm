@@ -2,7 +2,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import IID, Diagonal, Scalar
-from symlmm.errors import NotDefined
+from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
 from symlmm.panel import PanelView
 from symlmm.specs import Fixed, Position, RandomEffects, RandomSlope
@@ -38,6 +38,14 @@ def test_panel_rejects_unbalanced_blocks():
     dense = _model().dense(F=[0, 0, 1], p=[10, 11, 20])
     panel = PanelView(dense, dense.factor("F"), Position("p"))
     with pytest.raises(NotDefined, match="balanced"):
+        panel.position_count()
+
+
+def test_panel_rejects_free_symbolic_derived_positions():
+    t1 = sp.Symbol("t1", positive=True)
+    dense = _model().dense(F=[0, 0, 1, 1], p=[0, 1, t1, 2])
+    panel = PanelView(dense, dense.factor("F"), Position("p"))
+    with pytest.raises(ModelError, match="free symbols"):
         panel.position_count()
 
 

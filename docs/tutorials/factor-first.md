@@ -244,6 +244,10 @@ panel.position_count()             # 4
 
 ### Entry moments
 
+`entry_mean(level, position)` takes a 0-based position code, not a raw
+coordinate. Free symbolic coordinate values are rejected in derived dense
+panels; substitute numeric values or use `Position(..., column=...)`.
+
 ```python
 panel.entry_mean(0, 1)
 # beta0 + beta1
