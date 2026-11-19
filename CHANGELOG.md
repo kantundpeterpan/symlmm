@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block-addressed moments.
 - `BlockSet` and `LMM.block_set()` for symbolic joint block moments and BLUPs.
 - Symbolic `PanelView.entry_*` moments without dense mode.
+- Structured block designs and residual precision for factorized covariance.
+- Woodbury-based `Block.precision`, shrinkage, and BLUP moments without dense
+  \(n\times n\) inverses.
 
 ### Changed
 
