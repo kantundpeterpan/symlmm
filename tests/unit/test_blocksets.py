@@ -2,7 +2,7 @@ import pytest
 import sympy as sp
 
 from symlmm.covariances import IID, Scalar, Unstructured
-from symlmm.errors import ModelError
+from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
 from symlmm.specs import Covariate, Fixed, Group, RandomEffects, RandomSlope
 
@@ -30,6 +30,23 @@ def _ri_rs_symbolic_model():
         coordinate="time",
     )
     return model, i
+
+
+def _ri_symbolic_model():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+
+    return (
+        LMM(
+            fixed=Fixed(),
+            random=[
+                RandomEffects(group=Group("subject"), intercept=True, cov=Scalar(tau2)),
+            ],
+            residual=IID(var=sigma2),
+        ),
+        tau2,
+        sigma2,
+    )
 
 
 def _two_factor_symbolic_model():
@@ -106,6 +123,58 @@ def test_blockset_shrinkage_shape():
     S = blocks.shrinkage(term="subject")
 
     assert S.shape == (4, blocks.size())
+
+
+def test_blockset_ri_shrinkage_closed_form():
+    model, _, _ = _ri_symbolic_model()
+    i = sp.Symbol("i", integer=True)
+    j = sp.Symbol("j", integer=True)
+    left = model.block("subject", i)
+    right = model.block("subject", j)
+    blocks = model.block_set(left, right)
+
+    S = blocks.shrinkage("subject")
+
+    assert S.shape == (2, blocks.size())
+    assert S.has(sp.OneMatrix(1, left.size()))
+    assert S.has(sp.OneMatrix(1, right.size()))
+    assert not any(
+        isinstance(symbol, sp.Inverse) and symbol.shape == (blocks.size(), blocks.size())
+        for symbol in S.atoms(sp.Inverse)
+    )
+
+
+def test_blockset_dense_ri_shrinkage_closed_form():
+    model, tau2, sigma2 = _ri_symbolic_model()
+    dense = model.dense(subject=[0, 0, 1, 1, 1])
+    blocks = dense.block_set(
+        dense.block("subject", 0),
+        dense.block("subject", 1),
+    )
+
+    S = blocks.shrinkage("subject")
+    expected = sp.BlockDiagMatrix(
+        (tau2 / (sigma2 + 2 * tau2)) * sp.OneMatrix(1, 2),
+        (tau2 / (sigma2 + 3 * tau2)) * sp.OneMatrix(1, 3),
+    )
+
+    assert S.shape == (2, 5)
+    assert (S - expected).equals(sp.zeros(2, 5)) is True
+
+
+def test_blockset_precision_matches_dense_inverse():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    blocks = dense.block_set(
+        dense.block("subject", 0),
+        dense.block("subject", 1),
+    )
+    expected = dense.matrix_covariance()[0:8, :][:, 0:8].inv()
+
+    assert (blocks.precision() - expected).equals(sp.zeros(8, 8)) is True
 
 
 def test_blockset_blup_matches_global_dense():
@@ -199,6 +268,36 @@ def test_blockset_dense_term_design_pins_global_matrix_z_columns():
     assert blocks.random_design(term="subject") == expected
 
 
+def test_blockset_symbolic_precision_has_no_full_inverse():
+    model, i = _ri_rs_symbolic_model()
+    j = sp.Symbol("j", integer=True)
+    blocks = model.block_set(
+        model.block("subject", i),
+        model.block("subject", j),
+    )
+
+    P = blocks.precision()
+
+    assert P.shape == (blocks.size(), blocks.size())
+    assert not any(
+        isinstance(atom, sp.Inverse) and atom.shape == (blocks.size(), blocks.size())
+        for atom in P.atoms(sp.Inverse)
+    )
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["precision", "shrinkage", "blup_covariance", "blup_mean"],
+)
+def test_blockset_structured_queries_reject_multiple_random_terms(method):
+    model = _two_factor_symbolic_model()
+    blocks = model.block_set(model.block("subject", 0))
+    args = () if method == "precision" else ("subject",)
+
+    with pytest.raises(NotDefined, match="single random-effect term"):
+        getattr(blocks, method)(*args)
+
+
 def test_blockset_blup_requires_one_factor():
     model = _two_factor_symbolic_model()
     blocks = model.block_set(model.block("subject", 0), model.block("item", 0))
@@ -213,3 +312,11 @@ def test_blockset_random_design_requires_term_for_mixed_factors():
 
     with pytest.raises(ModelError, match="requires a term"):
         blocks.random_design()
+
+
+def test_blockset_structured_random_design_rejects_term_from_other_factor():
+    model = _two_factor_symbolic_model()
+    blocks = model.block_set(model.block("subject", 0), model.block("item", 0))
+
+    with pytest.raises(ModelError, match="structured_random_design"):
+        blocks.structured_random_design("subject")
