@@ -11,11 +11,18 @@ from symlmm.blocks import (
     block_size_symbol,
     block_term_design,
 )
-from symlmm.covariances import IID, Scalar
+from symlmm.covariances import IID, Scalar, Unstructured
 from symlmm.decomposition import terms
 from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
-from symlmm.specs import Fixed, Group, Nested, RandomEffects
+from symlmm.specs import (
+    Covariate,
+    Fixed,
+    Group,
+    Nested,
+    RandomEffects,
+    RandomSlope,
+)
 
 
 def _hierarchical():
@@ -279,3 +286,145 @@ def test_symbolic_cross_block_covariance_terms_sum_to_total():
     assert values["residual"] == block_cross_residual(
         model.factor("F"), f_level, model.factor("G"), g_level
     )
+
+
+def _ri_rs_symbolic_model():
+    b0, b1 = sp.symbols("b0 b1", real=True)
+    tau0, tau1, sigma2 = sp.symbols("tau0 tau1 sigma2", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    i = sp.Symbol("i", integer=True)
+
+    subject = Group("subject", index=i)
+    time = Covariate("time")
+
+    return LMM(
+        fixed=Fixed(intercept=b0, slopes={time: b1}),
+        random=[
+            RandomEffects(
+                group=subject,
+                intercept=True,
+                slopes=(RandomSlope(time),),
+                cov=Unstructured.from_sd_corr([tau0, tau1], rho_b),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    ), i
+
+
+def test_block_response_is_symbolic():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    Y = block.response()
+
+    assert Y.shape == (block.size(), 1)
+    assert Y.name == "Y_subject:i"
+
+
+def test_block_term_resolves_single_term():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    assert block.term().name == "subject"
+    assert block.term("subject").name == "subject"
+    assert block.random_effect("subject") == block_coefficients(model.factor("subject"), i, 2)
+
+
+def test_block_term_unknown_name_raises():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    with pytest.raises(ModelError, match="unknown random-effect term"):
+        block.term("missing")
+
+
+def test_block_shrinkage_is_symbolic():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+    term = block.term("subject")
+
+    G = term.random.cov.dense()
+    Z = block.random_design(term="subject")
+    V = block.covariance()
+    S = block.shrinkage("subject")
+
+    assert S == G * Z.T * V.inverse()
+    assert S.shape == (2, block.size())
+
+
+def test_block_dense_shrinkage_matches_global_moments():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 0)
+    rows = block.rows()
+    term = block.term("subject")
+    start = dense._random_term_offset(term.random)
+    columns = slice(start, start + term.random.dim)
+
+    G = dense.matrix_g()[columns, columns]
+    Z = dense.matrix_z()[rows, columns]
+    V = dense.matrix_covariance()[rows, :][:, rows]
+    expected = G * Z.T * V.inv()
+
+    assert (block.shrinkage("subject") - expected).equals(sp.zeros(2, block.size()))
+
+
+def test_block_blup_has_symbolic_shape():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    b_hat = block.blup_mean("subject")
+
+    assert b_hat.shape == (2, 1)
+    assert block.response() in b_hat.free_symbols
+
+
+def test_block_blup_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 0)
+    y = sp.MatrixSymbol("y", dense.n, 1)
+
+    actual = block.blup_mean("subject").subs({block.response(): y[0:4, :]})
+    expected = dense.blup_mean(form="matrix")[0:2, :]
+
+    assert (actual - expected).equals(sp.zeros(2, 1))
+
+
+def test_block_blup_covariance_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 0)
+
+    actual = block.blup_covariance("subject")
+    expected = dense.blup_covariance(form="matrix")[0:2, 0:2]
+
+    assert (actual - expected).equals(sp.zeros(2, 2))
+
+
+def test_block_blup_mean_without_fixed_effects():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    g = sp.Symbol("g", integer=True)
+    block = model.block("subject", g)
+
+    b_hat = block.blup_mean("subject")
+
+    assert b_hat.shape == (1, 1)
+    assert block.response() in b_hat.free_symbols
