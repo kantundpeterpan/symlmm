@@ -9,6 +9,7 @@ def test_ri_iid_shrinkage_closed_form_without_dense():
     tau2 = sp.Symbol("tau2", positive=True)
     sigma2 = sp.Symbol("sigma2", positive=True)
     i = sp.Symbol("i", integer=True)
+    j = sp.Symbol("j", integer=True)
 
     model = LMM(
         fixed=Fixed(),
@@ -27,5 +28,11 @@ def test_ri_iid_shrinkage_closed_form_without_dense():
 
     assert S.shape == (1, block.size())
     assert S.has(sp.OneMatrix(1, block.size()))
-    assert sp.simplify(S[0, 0] - expected) == 0
-    assert block.precision().shape == (block.size(), block.size())
+    assert sp.simplify(S[0, j] - expected) == 0
+
+    precision = block.precision()
+    assert precision.shape == (block.size(), block.size())
+    assert not any(
+        isinstance(symbol, sp.Inverse) and symbol.shape == (block.size(), block.size())
+        for symbol in precision.atoms(sp.Inverse)
+    )
