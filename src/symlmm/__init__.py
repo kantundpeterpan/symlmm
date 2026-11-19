@@ -13,6 +13,7 @@ from .blocks import (
     block_size_symbol,
     block_term_design,
 )
+from .blocksets import BlockSet
 from .blup import blup_covariance, blup_cross_covariance, blup_mean
 from .constraints import (
     Constraint,
@@ -89,6 +90,7 @@ __all__ = [
     "LMM",
     "Block",
     "BlockDiag",
+    "BlockSet",
     "CompoundSymmetry",
     "Constraint",
     "CovarianceConstructionError",
