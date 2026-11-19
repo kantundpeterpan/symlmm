@@ -11,11 +11,18 @@ from symlmm.blocks import (
     block_size_symbol,
     block_term_design,
 )
-from symlmm.covariances import IID, Scalar
+from symlmm.covariances import IID, Scalar, Unstructured
 from symlmm.decomposition import terms
 from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
-from symlmm.specs import Fixed, Group, Nested, RandomEffects
+from symlmm.specs import (
+    Covariate,
+    Fixed,
+    Group,
+    Nested,
+    RandomEffects,
+    RandomSlope,
+)
 
 
 def _hierarchical():
@@ -279,3 +286,56 @@ def test_symbolic_cross_block_covariance_terms_sum_to_total():
     assert values["residual"] == block_cross_residual(
         model.factor("F"), f_level, model.factor("G"), g_level
     )
+
+
+def _ri_rs_symbolic_model():
+    b0, b1 = sp.symbols("b0 b1", real=True)
+    tau0, tau1, sigma2 = sp.symbols("tau0 tau1 sigma2", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    i = sp.Symbol("i", integer=True)
+
+    subject = Group("subject", index=i)
+    time = Covariate("time")
+
+    return LMM(
+        fixed=Fixed(intercept=b0, slopes={time: b1}),
+        random=[
+            RandomEffects(
+                group=subject,
+                intercept=True,
+                slopes=(RandomSlope(time),),
+                cov=Unstructured.from_sd_corr([tau0, tau1], rho_b),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    ), i
+
+
+def test_block_response_is_symbolic():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    Y = block.response()
+
+    assert Y.shape == (block.size(), 1)
+    assert Y.name == "Y_subject:i"
+
+
+def test_block_term_resolves_single_term():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    assert block.term().name == "subject"
+    assert block.term("subject").name == "subject"
+    assert block.random_effect("subject") == block_coefficients(
+        model.factor("subject"), i, 2
+    )
+
+
+def test_block_term_unknown_name_raises():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    with pytest.raises(ModelError, match="unknown random-effect term"):
+        block.term("missing")

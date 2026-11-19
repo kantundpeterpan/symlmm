@@ -62,6 +62,11 @@ def block_coefficients(factor: Factor, level: Any, q: Any) -> sp.MatrixSymbol:
     return sp.MatrixSymbol(f"b_{factor.label}:{level}", q, 1)
 
 
+def block_response_symbol(factor: Factor, level: Any, size: Any) -> sp.MatrixSymbol:
+    """Return the symbolic response vector for one block."""
+    return sp.MatrixSymbol(f"Y_{factor.label}:{level}", size, 1)
+
+
 def _resolve_term(model: Any, name: Any) -> Any:
     """Return the term named `name`, or raise ModelError."""
     from .decomposition import terms
@@ -92,6 +97,32 @@ class Block:
         if self.model._dense:
             return len(self.rows())
         return block_size_symbol(self.factor, self.level)
+
+    def response(self) -> Any:
+        """Return the symbolic response vector for this block."""
+        return block_response_symbol(self.factor, self.level, self.size())
+
+    def term(self, name: str | None = None) -> Any:
+        """Return the random-effect term for this block.
+
+        If more than one term belongs to the block's factor, `name` is required.
+        """
+        from .decomposition import terms
+
+        candidates = [term for term in terms(self.model) if term.factor == self.factor]
+        if name is None:
+            if not candidates:
+                raise NotDefined(f"factor {self.factor.name!r} has no random-effect term")
+            if len(candidates) > 1:
+                raise ModelError(
+                    f"factor {self.factor.name!r} has multiple random-effect terms; "
+                    "pass term=<name>"
+                )
+            return candidates[0]
+        for term in candidates:
+            if term.name == name:
+                return term
+        raise ModelError(f"unknown random-effect term: {name!r}")
 
     def mean(self) -> Any:
         """Return E[Y_block]."""
@@ -216,16 +247,11 @@ class Block:
             return matrix[self.rows(), :][:, self.rows()]
         return block_residual(self.factor, self.level)
 
-    def random_effect(self) -> Any:
-        """Return the random-effect vector for this block, if one exists."""
-        random = next(
-            (
-                item
-                for item in self.model.random
-                if self.model.factor(item.group.name) == self.factor
-            ),
-            None,
+    def random_effect(self, term: str | None = None) -> Any:
+        """Return the random-effect vector for one term of this block."""
+        resolved = self.term(term)
+        return block_coefficients(
+            resolved.factor,
+            self.level,
+            resolved.random.dim,
         )
-        if random is None:
-            raise NotDefined(f"factor {self.factor.name!r} has no random-effect term")
-        return block_coefficients(self.factor, self.level, random.dim)
