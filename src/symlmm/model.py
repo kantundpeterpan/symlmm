@@ -606,6 +606,12 @@ class LMM(IndexedModel):
 
         return Block(self, self.factor(factor), level)
 
+    def block_set(self, *blocks: Any) -> Any:
+        """Return an ordered symbolic set of blocks."""
+        from .blocksets import BlockSet
+
+        return BlockSet(self, tuple(blocks))
+
     def block_mean(self, factor: Any, level: Any) -> Any:
         """Return E[Y_block]."""
         return self.block(factor, level).mean()
