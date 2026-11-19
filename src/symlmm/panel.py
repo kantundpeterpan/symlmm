@@ -149,24 +149,30 @@ class PanelView:
             return self.grid.position_codes()[int(i)]
         return self.model._occasion_code(i, self.factor.name)
 
+    def _entry_row(self, level: Any, position: Any) -> Any:
+        """Return a block-local row for dense or symbolic entry access."""
+        if self.model._dense:
+            return self.grid.row(level, position)
+        return position
+
     def entry_mean(self, level: Any, position: Any) -> Any:
         """Return E[Y_level,position]."""
         self._require_position()
-        row = self.grid.row(level, position)
+        row = self._entry_row(level, position)
         return Block(self.model, self.factor, level).mean()[row, 0]
 
     def entry_covariance(self, level: Any, p1: Any, p2: Any) -> Any:
         """Return Cov(Y_level,p1, Y_level,p2)."""
         self._require_position()
-        row1 = self.grid.row(level, p1)
-        row2 = self.grid.row(level, p2)
+        row1 = self._entry_row(level, p1)
+        row2 = self._entry_row(level, p2)
         return Block(self.model, self.factor, level).covariance()[row1, row2]
 
     def entry_cross_covariance(self, level1: Any, p1: Any, level2: Any, p2: Any) -> Any:
         """Return Cov(Y_level1,p1, Y_level2,p2)."""
         self._require_position()
-        row1 = self.grid.row(level1, p1)
-        row2 = self.grid.row(level2, p2)
+        row1 = self._entry_row(level1, p1)
+        row2 = self._entry_row(level2, p2)
         return Block(self.model, self.factor, level1).cross_covariance(
             Block(self.model, self.factor, level2)
         )[row1, row2]
