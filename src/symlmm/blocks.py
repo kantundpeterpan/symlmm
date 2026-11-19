@@ -203,6 +203,23 @@ class Block:
         resolved = _resolve_term(self.model, term)
         return block_term_design(self.factor, self.level, resolved)
 
+    def _require_single_term(self) -> None:
+        """Reject structured block moments when another term contributes.
+
+        Block-local structured queries currently use one term's design and
+        covariance. Other random-effect terms also enter the block covariance,
+        so multi-term models are not supported until the terms are stacked.
+        """
+        from .decomposition import terms
+
+        resolved = terms(self.model)
+        if len(resolved) > 1:
+            names = ", ".join(term.name for term in resolved)
+            raise NotDefined(
+                "structured block queries require a single random-effect term; "
+                f"model has {len(resolved)} terms ({names})"
+            )
+
     def design_columns(self, term: Any = None) -> tuple[Any, ...]:
         """Return structured random-effect design columns for one term."""
         resolved = self.term(term)
@@ -210,6 +227,7 @@ class Block:
         if resolved.random.intercept:
             columns.append(sp.OneMatrix(self.size(), 1))
         for slope in resolved.random.slopes:
+            # Mirrors RandomEffects.z within-resolution; locked by a dense test.
             within = resolved.factor.name if slope.within else None
             if self.model._dense:
                 values = [
@@ -227,11 +245,17 @@ class Block:
         return sp.BlockMatrix([list(self.design_columns(term))])
 
     def residual_precision(self) -> Any:
-        """Return R_A^-1 for this block."""
+        """Return R_A^-1 for this block.
+
+        The no-n x n inverse guarantee is IID-only: covariance families that do
+        not override ``precision`` fall back to the formal inverse of the full
+        block residual matrix.
+        """
         return self.model.residual.precision(self)
 
     def precision(self) -> Any:
         """Return V_A^-1 using the factorized covariance."""
+        self._require_single_term()
         term = self.term()
         return woodbury_precision(
             term.random.cov.dense(),
@@ -317,6 +341,7 @@ class Block:
 
     def shrinkage(self, term: str | None = None) -> Any:
         """Return G_t Z_t' V_A^-1 for this block and random-effect term."""
+        self._require_single_term()
         resolved = self.term(term)
         return woodbury_shrinkage(
             resolved.random.cov.dense(),
@@ -326,12 +351,14 @@ class Block:
 
     def blup_mean(self, term: str | None = None) -> Any:
         """Return E[b_A | Y_A] for this block and random-effect term."""
+        self._require_single_term()
         resolved = self.term(term)
         residual = self.response() - self.mean()
         return self.shrinkage(resolved.name) * residual
 
     def blup_covariance(self, term: str | None = None) -> Any:
         """Return Cov(b_A | Y_A) for this block and random-effect term."""
+        self._require_single_term()
         resolved = self.term(term)
         return woodbury_covariance(
             resolved.random.cov.dense(),

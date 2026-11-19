@@ -11,7 +11,7 @@ from symlmm.blocks import (
     block_size_symbol,
     block_term_design,
 )
-from symlmm.covariances import IID, Scalar, Unstructured
+from symlmm.covariances import IID, Diagonal, Scalar, Unstructured
 from symlmm.decomposition import terms
 from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
@@ -368,6 +368,56 @@ def test_block_design_columns_for_ri_and_rs():
     assert columns[0] == sp.OneMatrix(block.size(), 1)
     assert columns[1].shape == (block.size(), 1)
     assert columns[1] != columns[0]
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["precision", "shrinkage", "blup_covariance", "blup_mean"],
+)
+def test_block_structured_queries_reject_multiple_random_terms(method):
+    model = _hierarchical()
+    level = sp.Symbol("h", integer=True)
+    block = Block(model, model.factor("H"), level)
+    args = () if method == "precision" else (block.term().name,)
+
+    with pytest.raises(NotDefined, match="single random-effect term"):
+        getattr(block, method)(*args)
+
+
+@pytest.mark.parametrize("within", [True, False])
+def test_dense_design_columns_and_structured_design_match_matrix_z(within):
+    b0 = sp.Symbol("b0")
+    tau0, tau1, sigma2 = sp.symbols("tau0 tau1 sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(
+                group=Group("subject"),
+                intercept=True,
+                slopes=(RandomSlope("time", within=within),),
+                cov=Diagonal([tau0, tau1]),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    dense = model.dense(subject=[0, 0, 1, 1], time=[0, 1, 0, 2])
+    block = dense.block("subject", 1)
+    term = block.term("subject")
+    rows = block.rows()
+    labels = sorted(set(dense._dense_group_codes(term.factor)))
+    start = dense._random_term_offset(term.random) + labels.index(block.level) * term.random.dim
+    expected = dense.matrix_z()[rows, start : start + term.random.dim]
+
+    columns = block.design_columns("subject")
+
+    assert block.structured_random_design("subject").as_explicit() == expected
+    for index, column in enumerate(columns):
+        assert sp.Matrix(column) == expected[:, index]
+
+    # Locks the within-resolution mirrored from RandomEffects.z in specs.py.
+    term_design = sp.Matrix.vstack(*(term.random.z(dense, row).T for row in rows))
+    assert sp.Matrix.hstack(*(sp.Matrix(column) for column in columns)) == term_design
 
 
 def test_block_precision_matches_dense_inverse():
