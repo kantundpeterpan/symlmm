@@ -32,6 +32,23 @@ def _ri_rs_symbolic_model():
     return model, i
 
 
+def _ri_symbolic_model():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+
+    return (
+        LMM(
+            fixed=Fixed(),
+            random=[
+                RandomEffects(group=Group("subject"), intercept=True, cov=Scalar(tau2)),
+            ],
+            residual=IID(var=sigma2),
+        ),
+        tau2,
+        sigma2,
+    )
+
+
 def _two_factor_symbolic_model():
     b0 = sp.Symbol("b0", real=True)
     tau2, omega2, sigma2 = sp.symbols("tau2 omega2 sigma2", positive=True)
@@ -106,6 +123,58 @@ def test_blockset_shrinkage_shape():
     S = blocks.shrinkage(term="subject")
 
     assert S.shape == (4, blocks.size())
+
+
+def test_blockset_ri_shrinkage_closed_form():
+    model, _, _ = _ri_symbolic_model()
+    i = sp.Symbol("i", integer=True)
+    j = sp.Symbol("j", integer=True)
+    left = model.block("subject", i)
+    right = model.block("subject", j)
+    blocks = model.block_set(left, right)
+
+    S = blocks.shrinkage("subject")
+
+    assert S.shape == (2, blocks.size())
+    assert S.has(sp.OneMatrix(1, left.size()))
+    assert S.has(sp.OneMatrix(1, right.size()))
+    assert not any(
+        isinstance(symbol, sp.Inverse) and symbol.shape == (blocks.size(), blocks.size())
+        for symbol in S.atoms(sp.Inverse)
+    )
+
+
+def test_blockset_dense_ri_shrinkage_closed_form():
+    model, tau2, sigma2 = _ri_symbolic_model()
+    dense = model.dense(subject=[0, 0, 1, 1, 1])
+    blocks = dense.block_set(
+        dense.block("subject", 0),
+        dense.block("subject", 1),
+    )
+
+    S = blocks.shrinkage("subject")
+    expected = sp.BlockDiagMatrix(
+        (tau2 / (sigma2 + 2 * tau2)) * sp.OneMatrix(1, 2),
+        (tau2 / (sigma2 + 3 * tau2)) * sp.OneMatrix(1, 3),
+    )
+
+    assert S.shape == (2, 5)
+    assert (S - expected).equals(sp.zeros(2, 5)) is True
+
+
+def test_blockset_precision_matches_dense_inverse():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    blocks = dense.block_set(
+        dense.block("subject", 0),
+        dense.block("subject", 1),
+    )
+    expected = dense.matrix_covariance()[0:8, :][:, 0:8].inv()
+
+    assert (blocks.precision() - expected).equals(sp.zeros(8, 8)) is True
 
 
 def test_blockset_blup_matches_global_dense():
