@@ -1,11 +1,18 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Diagonal, Scalar
+from symlmm.covariances import IID, Diagonal, Scalar, Unstructured
 from symlmm.errors import ModelError, NotDefined
 from symlmm.model import LMM
 from symlmm.panel import PanelView
-from symlmm.specs import Fixed, Position, RandomEffects, RandomSlope
+from symlmm.specs import (
+    Covariate,
+    Fixed,
+    Group,
+    Position,
+    RandomEffects,
+    RandomSlope,
+)
 
 
 def _model():
@@ -123,3 +130,40 @@ def test_unbalanced_panel_rejects_position_mean_and_covariance():
         panel.position_mean(0)
     with pytest.raises(NotDefined, match="balanced"):
         panel.position_covariance(0, 1)
+
+
+def _symbolic_ri_rs_model():
+    b0, b1 = sp.symbols("b0 b1", real=True)
+    tau0, tau1, sigma2 = sp.symbols("tau0 tau1 sigma2", positive=True)
+    rho_b = sp.Symbol("rho_b", real=True)
+    i = sp.Symbol("i", integer=True)
+
+    subject = Group("subject", index=i)
+    time = Covariate("time")
+
+    return LMM(
+        fixed=Fixed(intercept=b0, slopes={time: b1}),
+        random=[
+            RandomEffects(
+                group=subject,
+                intercept=True,
+                slopes=(RandomSlope(time),),
+                cov=Unstructured.from_sd_corr([tau0, tau1], rho_b),
+            )
+        ],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+
+
+def test_symbolic_panel_entry_moments_use_block_entries():
+    model = _symbolic_ri_rs_model()
+    panel = model.panel("subject", "time")
+    i = sp.Symbol("i", integer=True)
+    t = sp.Symbol("t", integer=True)
+    s = sp.Symbol("s", integer=True)
+    block = model.block("subject", i)
+
+    assert panel.entry_mean(i, t) == block.mean()[t, 0]
+    assert panel.entry_covariance(i, t, s) == block.covariance()[t, s]
+    assert panel.entry_cross_covariance(i, t, i, s) == block.covariance()[t, s]
