@@ -155,6 +155,18 @@ class ResidualCovariance(ABC):
         """Return parameter constraints."""
         return ()
 
+    def precision(self, block: Any) -> Any:
+        """Return R^-1 for a block.
+
+        The default is the formal inverse of ``block.residual()``, an n_i x n_i
+        matrix expression. Only covariance families that override this
+        (currently ``IID``) avoid the n x n inverse; the no-n x n guarantee is
+        IID-only.
+        """
+        from .structured import inverse_matrix
+
+        return inverse_matrix(block.residual())
+
 
 class IID(ResidualCovariance):
     """IID residual covariance."""
@@ -165,6 +177,10 @@ class IID(ResidualCovariance):
     def entry(self, i: int, j: int, model: object) -> sp.Expr:
         """Return the (i, j) observation entry."""
         return self.var * sp.KroneckerDelta(i, j)
+
+    def precision(self, block: Any) -> Any:
+        """Return the IID precision matrix without an n x n inverse."""
+        return sp.Identity(block.size()) / self.var
 
     def constraints(self) -> tuple[Constraint, ...]:
         """Return parameter constraints."""

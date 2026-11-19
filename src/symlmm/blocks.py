@@ -7,9 +7,9 @@ from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
-from .blup import _inverse
 from .errors import ModelError, NotDefined
 from .specs import Factor
+from .structured import woodbury_covariance, woodbury_precision, woodbury_shrinkage
 
 
 def block_size_symbol(factor: Factor, level: Any) -> sp.Symbol:
@@ -203,6 +203,66 @@ class Block:
         resolved = _resolve_term(self.model, term)
         return block_term_design(self.factor, self.level, resolved)
 
+    def _require_single_term(self) -> None:
+        """Reject structured block moments when another term contributes.
+
+        Block-local structured queries currently use one term's design and
+        covariance. Other random-effect terms also enter the block covariance,
+        so multi-term models are not supported until the terms are stacked.
+        """
+        from .decomposition import terms
+
+        resolved = terms(self.model)
+        if len(resolved) > 1:
+            names = ", ".join(term.name for term in resolved)
+            raise NotDefined(
+                "structured block queries require a single random-effect term; "
+                f"model has {len(resolved)} terms ({names})"
+            )
+
+    def design_columns(self, term: Any = None) -> tuple[Any, ...]:
+        """Return structured random-effect design columns for one term."""
+        resolved = self.term(term)
+        columns: list[Any] = []
+        if resolved.random.intercept:
+            columns.append(sp.OneMatrix(self.size(), 1))
+        for slope in resolved.random.slopes:
+            # Mirrors RandomEffects.z within-resolution; locked by a dense test.
+            within = resolved.factor.name if slope.within else None
+            if self.model._dense:
+                values = [
+                    self.model.coordinate(row, slope.coordinate.name, within=within)
+                    for row in self.rows()
+                ]
+                columns.append(sp.Matrix(values))
+            else:
+                name = f"t_{self.factor.label}:{self.level}:{resolved.name}:{slope.coordinate.name}"
+                columns.append(sp.MatrixSymbol(name, self.size(), 1))
+        return tuple(columns)
+
+    def structured_random_design(self, term: Any = None) -> Any:
+        """Return the structured random-effect design block."""
+        return sp.BlockMatrix([list(self.design_columns(term))])
+
+    def residual_precision(self) -> Any:
+        """Return R_A^-1 for this block.
+
+        The no-n x n inverse guarantee is IID-only: covariance families that do
+        not override ``precision`` fall back to the formal inverse of the full
+        block residual matrix.
+        """
+        return self.model.residual.precision(self)
+
+    def precision(self) -> Any:
+        """Return V_A^-1 using the factorized covariance."""
+        self._require_single_term()
+        term = self.term()
+        return woodbury_precision(
+            term.random.cov.dense(),
+            self.structured_random_design(term.name),
+            self.residual_precision(),
+        )
+
     def cross_residual(self, other: Block) -> Any:
         """Return the residual cross-covariance between this block and `other`."""
         if self.model is not other.model:
@@ -281,22 +341,27 @@ class Block:
 
     def shrinkage(self, term: str | None = None) -> Any:
         """Return G_t Z_t' V_A^-1 for this block and random-effect term."""
+        self._require_single_term()
         resolved = self.term(term)
-        G = resolved.random.cov.dense()
-        Z = self.random_design(term=resolved.name)
-        V = self.covariance()
-        return G * Z.T * _inverse(V)
+        return woodbury_shrinkage(
+            resolved.random.cov.dense(),
+            self.structured_random_design(resolved.name),
+            self.residual_precision(),
+        )
 
     def blup_mean(self, term: str | None = None) -> Any:
         """Return E[b_A | Y_A] for this block and random-effect term."""
+        self._require_single_term()
         resolved = self.term(term)
         residual = self.response() - self.mean()
         return self.shrinkage(resolved.name) * residual
 
     def blup_covariance(self, term: str | None = None) -> Any:
         """Return Cov(b_A | Y_A) for this block and random-effect term."""
+        self._require_single_term()
         resolved = self.term(term)
-        G = resolved.random.cov.dense()
-        Z = self.random_design(term=resolved.name)
-        S = self.shrinkage(resolved.name)
-        return G - S * Z * G
+        return woodbury_covariance(
+            resolved.random.cov.dense(),
+            self.structured_random_design(resolved.name),
+            self.residual_precision(),
+        )
