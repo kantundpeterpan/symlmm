@@ -111,9 +111,28 @@ class BlockSet:
         )
 
     def structured_random_design(self, term: str | None = None) -> Any:
-        """Return the block-diagonal structured random design."""
-        if term is None and len({block.factor for block in self.blocks}) > 1:
-            raise ModelError("random_design requires a term for mixed-factor block sets")
+        """Return the block-diagonal structured random design.
+
+        `term` is required when the set contains blocks from multiple factors.
+        When supplied, every block must belong to that term's factor.
+        """
+        if term is None:
+            if len({block.factor for block in self.blocks}) > 1:
+                raise ModelError(
+                    "structured_random_design requires a term for mixed-factor block sets"
+                )
+        else:
+            resolved = next(
+                (item for item in self.model.terms() if item.name == term),
+                None,
+            )
+            if resolved is None:
+                raise ModelError(f"unknown random-effect term: {term!r}")
+            if any(block.factor != resolved.factor for block in self.blocks):
+                raise ModelError(
+                    "structured_random_design requires blocks from the term's factor; "
+                    f"term {term!r} belongs to factor {resolved.factor.name!r}"
+                )
         return _assemble(
             self.model,
             sp.BlockDiagMatrix(
@@ -129,7 +148,11 @@ class BlockSet:
         )
 
     def precision(self) -> Any:
-        """Return the joint V^-1 using Woodbury."""
+        """Return the joint V^-1 using Woodbury.
+
+        Single-term models only: structured block-set queries raise
+        `NotDefined` when the model has more than one random-effect term.
+        """
         resolved = self._term()
         G = sp.BlockDiagMatrix(*[resolved.random.cov.dense() for _ in self.blocks]).as_explicit()
         Z = self.structured_random_design(resolved.name)
@@ -140,6 +163,7 @@ class BlockSet:
         factors = {block.factor for block in self.blocks}
         if len(factors) != 1:
             raise ModelError("block-set BLUP requires blocks from one factor")
+        self.blocks[0]._require_single_term()
         return self.blocks[0].term(term)
 
     def shrinkage(self, term: str | None = None) -> Any:
