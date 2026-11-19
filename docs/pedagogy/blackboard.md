@@ -144,6 +144,26 @@ Position-column moments (`position_mean`, `position_covariance`) require a
 concrete level count; the fully symbolic arbitrary-`m` form raises
 `NotDefined`.
 
+### Abstract block moments
+
+Block moments do not require a dense observation table. For a symbolic
+subject block:
+
+```python
+i = sp.Symbol("i", integer=True)
+A = model.block("subject", i)
+
+A.size()                   # n_subject:i
+A.response()               # Y_subject:i
+A.design()                 # X_subject:i
+A.covariance()             # V_subject:i
+A.shrinkage("subject")     # G Z' V^-1
+A.blup_mean("subject")     # E[b_i | Y_i]
+```
+
+`Block.rows()` and `PanelGrid.row()` are dense-evaluator internals. Symbolic
+block queries use block matrices and symbolic block sizes.
+
 ## Blackboard symbols
 
 `panel.symbols()` returns `ModelSymbols` bound to the panel's factor and
@@ -168,10 +188,10 @@ syms.G                      # G
 syms.beta                   # beta
 ```
 
-A symbolic-model panel can leave positions symbolic. Entry moments require
-dense mode; position-column moments additionally require a concrete level
-count. A bare integer index is ambiguous, so use `Y[0, :]` for a block row or
-`Y[:, 0]` for a position column.
+A symbolic-model panel can leave positions symbolic. Entry moments use the
+position as a block-local row address; position-column moments additionally
+require a concrete level count. A bare integer index is ambiguous, so use
+`Y[0, :]` for a block row or `Y[:, 0]` for a position column.
 
 ## Block-level moments
 
