@@ -42,3 +42,10 @@ def test_symbolic_block_moments_do_not_access_rows(monkeypatch):
     assert block.shrinkage("subject").shape == (2, block.size())
     assert block.blup_mean("subject").shape == (2, 1)
     assert block.blup_covariance("subject").shape == (2, 2)
+
+    j = sp.Symbol("j", integer=True)
+    blocks = model.block_set(model.block("subject", i), model.block("subject", j))
+
+    assert blocks.shrinkage("subject").shape == (4, blocks.size())
+    assert blocks.blup_mean("subject").shape == (4, 1)
+    assert blocks.blup_covariance("subject").shape == (4, 4)

@@ -156,7 +156,7 @@ A = model.block("subject", i)
 A.size()                   # n_subject:i
 A.response()               # Y_subject:i
 A.design()                 # X_subject:i
-A.covariance()             # V_subject:i
+A.covariance()             # V_subject:i = Z G Z' + R
 A.shrinkage("subject")     # G Z' V^-1
 A.blup_mean("subject")     # E[b_i | Y_i]
 ```
