@@ -164,6 +164,36 @@ A.blup_mean("subject")     # E[b_i | Y_i]
 `Block.rows()` and `PanelGrid.row()` are dense-evaluator internals. Symbolic
 block queries use block matrices and symbolic block sizes.
 
+### Structured covariance
+
+Block moments use the factorized covariance
+
+\[
+V_A = R_A + Z_A G Z_A',
+\]
+
+and Woodbury for any inverse:
+
+\[
+V_A^{-1}
+=
+R_A^{-1}
+-
+R_A^{-1}Z_A
+\left(G^{-1}+Z_A'R_A^{-1}Z_A\right)^{-1}
+Z_A'R_A^{-1}.
+\]
+
+`Z_A` is built from the random-effect specification and `R_A^{-1}` comes from
+the residual covariance. RI/IID therefore reduces automatically:
+
+```python
+A.shrinkage("subject")
+# tau2/(sigma2 + n_subject:i*tau2) * 1'
+```
+
+without a dense \(n_i\times n_i\) inverse.
+
 ## Blackboard symbols
 
 `panel.symbols()` returns `ModelSymbols` bound to the panel's factor and
