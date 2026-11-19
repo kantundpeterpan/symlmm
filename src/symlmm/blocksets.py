@@ -8,6 +8,7 @@ from typing import Any
 import sympy as sp  # type: ignore[import-untyped]
 
 from .blocks import Block
+from .blup import _inverse
 from .errors import ModelError
 
 
@@ -99,3 +100,33 @@ class BlockSet:
                 [[left.cross_covariance(right) for right in other.blocks] for left in self.blocks]
             ),
         )
+
+    def _term(self, term: str | None = None) -> Any:
+        """Resolve the shared random-effect term for this set."""
+        factors = {block.factor for block in self.blocks}
+        if len(factors) != 1:
+            raise ModelError("block-set BLUP requires blocks from one factor")
+        return self.blocks[0].term(term)
+
+    def shrinkage(self, term: str | None = None) -> Any:
+        """Return the block-set shrinkage operator."""
+        resolved = self._term(term)
+        G = sp.BlockDiagMatrix(*[resolved.random.cov.dense() for _ in self.blocks]).as_explicit()
+        Z = self.random_design(term=resolved.name)
+        V = self.covariance()
+        return G * Z.T * _inverse(V)
+
+    def blup_mean(self, term: str | None = None) -> Any:
+        """Return the joint BLUP for the random effects in this set."""
+        resolved = self._term(term)
+        beta = sp.Matrix(self.model.fixed.coefficients())
+        residual = self.response() - self.design() * beta
+        return self.shrinkage(resolved.name) * residual
+
+    def blup_covariance(self, term: str | None = None) -> Any:
+        """Return the joint conditional covariance for this set."""
+        resolved = self._term(term)
+        G = sp.BlockDiagMatrix(*[resolved.random.cov.dense() for _ in self.blocks]).as_explicit()
+        Z = self.random_design(term=resolved.name)
+        S = self.shrinkage(resolved.name)
+        return G - S * Z * G

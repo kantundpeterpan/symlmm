@@ -79,3 +79,47 @@ def test_blockset_dense_covariance_matches_global_matrix():
     rows = list(range(8))
 
     assert blocks.covariance() == dense.matrix_covariance()[rows, :][:, rows]
+
+
+def test_blockset_shrinkage_shape():
+    model, i = _ri_rs_symbolic_model()
+    j = sp.Symbol("j", integer=True)
+    blocks = model.block_set(
+        model.block("subject", i),
+        model.block("subject", j),
+    )
+
+    S = blocks.shrinkage(term="subject")
+
+    assert S.shape == (4, blocks.size())
+
+
+def test_blockset_blup_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    blocks = dense.block_set(
+        dense.block("subject", 0),
+        dense.block("subject", 1),
+    )
+    y = sp.MatrixSymbol("y", dense.n, 1)
+    left, right = blocks.blocks
+    actual = blocks.blup_mean(term="subject").subs(
+        {
+            left.response(): y[0:4, :],
+            right.response(): y[4:8, :],
+        }
+    )
+    expected = dense.blup_mean(form="matrix")
+
+    assert (actual - expected).equals(sp.zeros(4, 1))
+
+
+def test_blockset_blup_requires_one_factor():
+    model, i = _ri_rs_symbolic_model()
+    other_factor = model.factor("subject")
+    blocks = model.block_set(model.block("subject", i))
+
+    assert blocks.blocks[0].factor == other_factor
