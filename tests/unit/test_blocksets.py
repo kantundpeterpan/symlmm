@@ -1,7 +1,7 @@
 import pytest
 import sympy as sp
 
-from symlmm.covariances import IID, Unstructured
+from symlmm.covariances import IID, Scalar, Unstructured
 from symlmm.errors import ModelError
 from symlmm.model import LMM
 from symlmm.specs import Covariate, Fixed, Group, RandomEffects, RandomSlope
@@ -30,6 +30,20 @@ def _ri_rs_symbolic_model():
         coordinate="time",
     )
     return model, i
+
+
+def _two_factor_symbolic_model():
+    b0 = sp.Symbol("b0", real=True)
+    tau2, omega2, sigma2 = sp.symbols("tau2 omega2 sigma2", positive=True)
+
+    return LMM(
+        fixed=Fixed(intercept=b0),
+        random=[
+            RandomEffects(group=Group("subject"), intercept=True, cov=Scalar(tau2)),
+            RandomEffects(group=Group("item"), intercept=True, cov=Scalar(omega2)),
+        ],
+        residual=IID(var=sigma2),
+    )
 
 
 def test_blockset_symbolic_shapes():
@@ -114,12 +128,88 @@ def test_blockset_blup_matches_global_dense():
     )
     expected = dense.blup_mean(form="matrix")
 
-    assert (actual - expected).equals(sp.zeros(4, 1))
+    assert (actual - expected).equals(sp.zeros(4, 1)) is True
+
+
+def test_blockset_blup_covariance_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    blocks = dense.block_set(
+        dense.block("subject", 0),
+        dense.block("subject", 1),
+    )
+
+    actual = blocks.blup_covariance(term="subject")
+    expected = dense.blup_covariance(form="matrix")
+
+    assert (actual - expected).equals(sp.zeros(4, 4)) is True
+
+
+def test_blockset_cross_covariance_matches_global_dense_slice():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    left = dense.block_set(dense.block("subject", 0))
+    right = dense.block_set(dense.block("subject", 1))
+
+    actual = left.cross_covariance(right)
+    expected = dense.matrix_covariance()[0:4, :][:, 4:8]
+
+    assert actual == expected
+
+
+def test_blockset_cross_covariance_rejects_different_models():
+    model, i = _ri_rs_symbolic_model()
+    other, _ = _ri_rs_symbolic_model()
+    blocks = model.block_set(model.block("subject", i))
+    other_blocks = other.block_set(other.block("subject", i))
+
+    with pytest.raises(ModelError, match="same model"):
+        blocks.cross_covariance(other_blocks)
+
+
+def test_blockset_dense_term_design_rejects_unknown_level():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 1, 1],
+        time=[0, 1, 0, 1],
+    )
+    blocks = dense.block_set(dense.block("subject", 99))
+
+    with pytest.raises(ModelError, match="unknown block level"):
+        blocks.random_design(term="subject")
+
+
+def test_blockset_dense_term_design_pins_global_matrix_z_columns():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 1)
+    blocks = dense.block_set(block)
+
+    expected = dense.matrix_z()[block.rows(), 2:4]
+
+    assert blocks.random_design(term="subject") == expected
 
 
 def test_blockset_blup_requires_one_factor():
-    model, i = _ri_rs_symbolic_model()
-    other_factor = model.factor("subject")
-    blocks = model.block_set(model.block("subject", i))
+    model = _two_factor_symbolic_model()
+    blocks = model.block_set(model.block("subject", 0), model.block("item", 0))
 
-    assert blocks.blocks[0].factor == other_factor
+    with pytest.raises(ModelError, match="one factor"):
+        blocks.blup_mean()
+
+
+def test_blockset_random_design_requires_term_for_mixed_factors():
+    model = _two_factor_symbolic_model()
+    blocks = model.block_set(model.block("subject", 0), model.block("item", 0))
+
+    with pytest.raises(ModelError, match="requires a term"):
+        blocks.random_design()

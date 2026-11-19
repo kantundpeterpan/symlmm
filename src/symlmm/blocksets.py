@@ -67,11 +67,20 @@ class BlockSet:
         matrix = block.model.matrix_z()
         start = block.model._random_term_offset(resolved.random)
         levels = sorted(set(block.model._dense_group_codes(block.factor)))
-        start += levels.index(block.level) * resolved.random.dim
+        try:
+            level_index = {level: index for index, level in enumerate(levels)}[block.level]
+        except KeyError as exc:
+            raise ModelError("unknown block level") from exc
+        start += level_index * resolved.random.dim
         return matrix[block.rows(), start : start + resolved.random.dim]
 
     def random_design(self, term: str | None = None) -> Any:
-        """Return the block-diagonal design matrix for random-effect columns."""
+        """Return the block-diagonal design matrix for random-effect columns.
+
+        `term` is required when the set contains blocks from multiple factors.
+        """
+        if term is None and len({block.factor for block in self.blocks}) > 1:
+            raise ModelError("random_design requires a term for mixed-factor block sets")
         if self.model._dense and term is not None:
             return sp.BlockDiagMatrix(
                 *[self._dense_term_design(block, term) for block in self.blocks]
