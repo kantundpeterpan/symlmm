@@ -7,6 +7,7 @@ from typing import Any
 
 import sympy as sp  # type: ignore[import-untyped]
 
+from .blup import _inverse
 from .errors import ModelError, NotDefined
 from .specs import Factor
 
@@ -65,13 +66,6 @@ def block_coefficients(factor: Factor, level: Any, q: Any) -> sp.MatrixSymbol:
 def block_response_symbol(factor: Factor, level: Any, size: Any) -> sp.MatrixSymbol:
     """Return the symbolic response vector for one block."""
     return sp.MatrixSymbol(f"Y_{factor.label}:{level}", size, 1)
-
-
-def _inverse(matrix: Any) -> Any:
-    """Return the inverse of an explicit matrix or matrix expression."""
-    if isinstance(matrix, sp.MatrixBase):
-        return matrix.inv()
-    return matrix.inverse()
 
 
 def _resolve_term(model: Any, name: Any) -> Any:
@@ -274,8 +268,7 @@ class Block:
     def blup_mean(self, term: str | None = None) -> Any:
         """Return E[b_A | Y_A] for this block and random-effect term."""
         resolved = self.term(term)
-        beta = sp.Matrix(self.model.fixed.coefficients())
-        residual = self.response() - self.design() * beta
+        residual = self.response() - self.mean()
         return self.shrinkage(resolved.name) * residual
 
     def blup_covariance(self, term: str | None = None) -> Any:

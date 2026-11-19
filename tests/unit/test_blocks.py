@@ -353,6 +353,26 @@ def test_block_shrinkage_is_symbolic():
     assert S.shape == (2, block.size())
 
 
+def test_block_dense_shrinkage_matches_global_moments():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 0)
+    rows = block.rows()
+    term = block.term("subject")
+    start = dense._random_term_offset(term.random)
+    columns = slice(start, start + term.random.dim)
+
+    G = dense.matrix_g()[columns, columns]
+    Z = dense.matrix_z()[rows, columns]
+    V = dense.matrix_covariance()[rows, :][:, rows]
+    expected = G * Z.T * V.inv()
+
+    assert (block.shrinkage("subject") - expected).equals(sp.zeros(2, block.size()))
+
+
 def test_block_blup_has_symbolic_shape():
     model, i = _ri_rs_symbolic_model()
     block = model.block("subject", i)
@@ -378,14 +398,33 @@ def test_block_blup_matches_global_dense():
     assert (actual - expected).equals(sp.zeros(2, 1))
 
 
-def test_block_blup_covariance_matches_definition():
-    model, i = _ri_rs_symbolic_model()
-    block = model.block("subject", i)
-    term = block.term("subject")
-    G = term.random.cov.dense()
-    Z = block.random_design(term="subject")
-    V = block.covariance()
+def test_block_blup_covariance_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 0)
 
-    expected = G - G * Z.T * V.inverse() * Z * G
+    actual = block.blup_covariance("subject")
+    expected = dense.blup_covariance(form="matrix")[0:2, 0:2]
 
-    assert block.blup_covariance("subject") == expected
+    assert (actual - expected).equals(sp.zeros(2, 2))
+
+
+def test_block_blup_mean_without_fixed_effects():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    model = LMM(
+        fixed=Fixed(),
+        random=[RandomEffects(group="subject", intercept=True, cov=Scalar(tau2))],
+        residual=IID(var=sigma2),
+        coordinate="time",
+    )
+    g = sp.Symbol("g", integer=True)
+    block = model.block("subject", g)
+
+    b_hat = block.blup_mean("subject")
+
+    assert b_hat.shape == (1, 1)
+    assert block.response() in b_hat.free_symbols
