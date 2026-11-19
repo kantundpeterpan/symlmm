@@ -328,9 +328,7 @@ def test_block_term_resolves_single_term():
 
     assert block.term().name == "subject"
     assert block.term("subject").name == "subject"
-    assert block.random_effect("subject") == block_coefficients(
-        model.factor("subject"), i, 2
-    )
+    assert block.random_effect("subject") == block_coefficients(model.factor("subject"), i, 2)
 
 
 def test_block_term_unknown_name_raises():
@@ -339,3 +337,55 @@ def test_block_term_unknown_name_raises():
 
     with pytest.raises(ModelError, match="unknown random-effect term"):
         block.term("missing")
+
+
+def test_block_shrinkage_is_symbolic():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+    term = block.term("subject")
+
+    G = term.random.cov.dense()
+    Z = block.random_design(term="subject")
+    V = block.covariance()
+    S = block.shrinkage("subject")
+
+    assert S == G * Z.T * V.inverse()
+    assert S.shape == (2, block.size())
+
+
+def test_block_blup_has_symbolic_shape():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    b_hat = block.blup_mean("subject")
+
+    assert b_hat.shape == (2, 1)
+    assert block.response() in b_hat.free_symbols
+
+
+def test_block_blup_matches_global_dense():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 0, 1, 1, 1, 1],
+        time=[0, 1, 2, 3, 0, 1, 2, 3],
+    )
+    block = dense.block("subject", 0)
+    y = sp.MatrixSymbol("y", dense.n, 1)
+
+    actual = block.blup_mean("subject").subs({block.response(): y[0:4, :]})
+    expected = dense.blup_mean(form="matrix")[0:2, :]
+
+    assert (actual - expected).equals(sp.zeros(2, 1))
+
+
+def test_block_blup_covariance_matches_definition():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+    term = block.term("subject")
+    G = term.random.cov.dense()
+    Z = block.random_design(term="subject")
+    V = block.covariance()
+
+    expected = G - G * Z.T * V.inverse() * Z * G
+
+    assert block.blup_covariance("subject") == expected

@@ -67,6 +67,13 @@ def block_response_symbol(factor: Factor, level: Any, size: Any) -> sp.MatrixSym
     return sp.MatrixSymbol(f"Y_{factor.label}:{level}", size, 1)
 
 
+def _inverse(matrix: Any) -> Any:
+    """Return the inverse of an explicit matrix or matrix expression."""
+    if isinstance(matrix, sp.MatrixBase):
+        return matrix.inv()
+    return matrix.inverse()
+
+
 def _resolve_term(model: Any, name: Any) -> Any:
     """Return the term named `name`, or raise ModelError."""
     from .decomposition import terms
@@ -255,3 +262,26 @@ class Block:
             self.level,
             resolved.random.dim,
         )
+
+    def shrinkage(self, term: str | None = None) -> Any:
+        """Return G_t Z_t' V_A^-1 for this block and random-effect term."""
+        resolved = self.term(term)
+        G = resolved.random.cov.dense()
+        Z = self.random_design(term=resolved.name)
+        V = self.covariance()
+        return G * Z.T * _inverse(V)
+
+    def blup_mean(self, term: str | None = None) -> Any:
+        """Return E[b_A | Y_A] for this block and random-effect term."""
+        resolved = self.term(term)
+        beta = sp.Matrix(self.model.fixed.coefficients())
+        residual = self.response() - self.design() * beta
+        return self.shrinkage(resolved.name) * residual
+
+    def blup_covariance(self, term: str | None = None) -> Any:
+        """Return Cov(b_A | Y_A) for this block and random-effect term."""
+        resolved = self.term(term)
+        G = resolved.random.cov.dense()
+        Z = self.random_design(term=resolved.name)
+        S = self.shrinkage(resolved.name)
+        return G - S * Z * G
