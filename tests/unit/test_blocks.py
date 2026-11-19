@@ -339,18 +339,100 @@ def test_block_term_unknown_name_raises():
         block.term("missing")
 
 
-def test_block_shrinkage_is_symbolic():
+def test_block_design_columns_for_ri_and_rs():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    i = sp.Symbol("i", integer=True)
+    ri_model = LMM(
+        fixed=Fixed(),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                cov=Scalar(tau2),
+            )
+        ],
+        residual=IID(var=sigma2),
+    )
+    ri_block = ri_model.block("subject", i)
+    ri_columns = ri_block.design_columns("subject")
+
+    assert len(ri_columns) == 1
+    assert ri_columns[0] == sp.OneMatrix(ri_block.size(), 1)
+
     model, i = _ri_rs_symbolic_model()
     block = model.block("subject", i)
-    term = block.term("subject")
+    columns = block.design_columns("subject")
 
-    G = term.random.cov.dense()
-    Z = block.random_design(term="subject")
-    V = block.covariance()
+    assert len(columns) == 2
+    assert columns[0] == sp.OneMatrix(block.size(), 1)
+    assert columns[1].shape == (block.size(), 1)
+    assert columns[1] != columns[0]
+
+
+def test_block_precision_matches_dense_inverse():
+    model, _ = _ri_rs_symbolic_model()
+    dense = model.dense(
+        subject=[0, 0, 0, 1, 1, 1],
+        time=[0, 1, 2, 0, 1, 2],
+    )
+    block = dense.block("subject", 0)
+    expected = dense.matrix_covariance()[0:3, 0:3].inv()
+
+    assert (block.precision() - expected).equals(sp.zeros(3, 3))
+
+
+def test_block_precision_has_no_n_by_n_inverse_symbol():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    precision = block.precision()
+
+    assert precision.shape == (block.size(), block.size())
+    assert not any(
+        isinstance(symbol, sp.Inverse) and symbol.shape == (block.size(), block.size())
+        for symbol in precision.atoms(sp.Inverse)
+    )
+
+
+def test_block_shrinkage_uses_structured_design():
+    model, i = _ri_rs_symbolic_model()
+    block = model.block("subject", i)
+
+    Z = block.structured_random_design("subject")
     S = block.shrinkage("subject")
 
-    assert S == G * Z.T * V.inverse()
+    assert Z.shape == (block.size(), 2)
+    assert Z[0, 0] == 1
     assert S.shape == (2, block.size())
+
+
+def test_block_shrinkage_ri_closed_form():
+    tau2 = sp.Symbol("tau2", positive=True)
+    sigma2 = sp.Symbol("sigma2", positive=True)
+    i = sp.Symbol("i", integer=True)
+    model = LMM(
+        fixed=Fixed(),
+        random=[
+            RandomEffects(
+                group="subject",
+                intercept=True,
+                cov=Scalar(tau2),
+            )
+        ],
+        residual=IID(var=sigma2),
+    )
+    block = model.block("subject", i)
+
+    S = block.shrinkage("subject")
+    expected = (tau2 / (sigma2 + block.size() * tau2)) * sp.OneMatrix(1, block.size())
+
+    assert S.shape == (1, block.size())
+    assert sp.simplify((S - expected)[0, 0]) == 0
+    assert not any(
+        isinstance(symbol, sp.Inverse) and symbol.shape == (block.size(), block.size())
+        for symbol in S.atoms(sp.Inverse)
+    )
 
 
 def test_block_dense_shrinkage_matches_global_moments():
