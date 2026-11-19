@@ -290,7 +290,65 @@ dense_long.covariance_terms(1, 2)
 The subject term contains both the random intercept and the random slope;
 `residual` is the AR(1) contribution.
 
-## Part 3: symbolic and numeric use
+## Part 3: blackboard notation
+
+`panel.symbols()` returns a blackboard facade for textbook-style expressions.
+For the longitudinal panel:
+
+$$
+E[Y_{it}] = X_{it}\beta, \qquad
+\operatorname{Var}(Y_{it}) = [V_i]_{tt}, \qquad
+\operatorname{Cov}(Y_{it},Y_{is}) = [V_i]_{ts}.
+$$
+
+```python
+syms = panel.symbols()
+
+syms.i                      # subject index i
+syms.t                      # time index t
+
+syms.E(syms.Y[0, 0])        # beta0
+syms.Var(syms.Y[0, 0])      # sigma2 + tau0
+syms.Cov(syms.Y[0, 0], syms.Y[0, 2])
+# rho**2*sigma2 + tau0
+```
+
+Group rows use `Y[group, :]`:
+
+```python
+syms.E(syms.Y[0, :])
+# [beta0, beta0 + beta1, beta0 + 2*beta1, beta0 + 3*beta1]
+
+syms.Var(syms.Y[0, :])
+# 4 x 4 within-subject covariance matrix
+```
+
+Random-effect moments use `b[i]`:
+
+```python
+syms.b[syms.i]              # b_i
+syms.Var(syms.b[syms.i])    # diag(tau0, tau1)
+```
+
+For the hierarchical model, the blackboard’s `Y` row/column notation needs a
+panel position axis. Group-level effects are still available directly:
+
+```python
+hs = hier.panel(school, None).symbols()
+
+hs.b[hs.i]                  # b_school
+hs.Var(hs.b[hs.i])          # [[s2_school]]
+hs.G                        # same school-level covariance
+hs.E(hs.b[hs.i])            # zero matrix
+```
+
+This separates two uses of the same facade:
+
+- `b[i]` and `G` describe random-effect vectors for a factor;
+- `Y[i, t]`, `E`, `Var`, and `Cov` describe response moments when a panel
+  position axis exists.
+
+## Part 4: symbolic and numeric use
 
 The model objects are symbolic. `dense` adds concrete observation columns and
 is required for dense entry moments and plots. The symbolic block API is
