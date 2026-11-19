@@ -189,11 +189,13 @@ class Block:
             if term is None:
                 return matrix[self.rows(), :]
             resolved = _resolve_term(self.model, term)
-            start = self.model._random_term_offset(resolved.random)
             if resolved.factor == self.factor:
+                start = self.model._random_term_offset(resolved.random)
                 labels = sorted(set(self.model._dense_group_codes(resolved.factor)))
                 start += labels.index(self.level) * resolved.random.dim
-            stop = start + resolved.random.dim
+                stop = start + resolved.random.dim
+            else:
+                start, stop = self._dense_term_bounds(resolved)
             return matrix[self.rows(), start:stop]
         if term is None:
             q = self.model.dimensions()[1]

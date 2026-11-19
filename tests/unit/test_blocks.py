@@ -409,6 +409,24 @@ def test_dense_block_random_design_uses_term_level_columns_with_reversed_rows():
     assert block.random_design(term="subject") == Z[rows, start : start + term.random.dim]
 
 
+def test_dense_block_random_design_uses_full_layout_for_other_factor_terms():
+    model = _hierarchical()
+    dense = model.dense(F=[0, 0, 1, 1], G=[0, 0, 0, 0], H=[0, 0, 1, 1])
+    block = dense.block("H", 1)
+    rows = block.rows()
+    Z = dense.matrix_z()
+    term = next(item for item in terms(dense) if item.name == "F")
+    start = dense._random_term_offset(term.random)
+    stop = start + dense.levels(term.factor.name) * term.random.dim
+
+    actual = block.random_design(term="F")
+
+    assert rows == [2, 3]
+    assert actual == Z[rows, start:stop]
+    assert actual != sp.zeros(block.size(), term.random.dim)
+    assert actual != Z[rows, start : start + term.random.dim]
+
+
 def test_block_dense_shrinkage_level_one_matches_global_moments():
     model, _ = _ri_rs_symbolic_model()
     dense = model.dense(
